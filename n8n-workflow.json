@@ -1,5 +1,5 @@
 {
-  "name": "Sendor AI",
+  "name": "GOPI KRISHNA",
   "nodes": [
     {
       "parameters": {
@@ -8,24 +8,132 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1952,
-        -432
+        -2720,
+        112
       ],
-      "id": "157f4e1d-5915-4d51-b3e9-1fb48204cafb",
+      "id": "96fc9575-80a2-4e54-a432-ef915a4b65b7",
       "name": "Start Timer"
     },
     {
       "parameters": {
-        "useCustomSchema": true,
-        "operation": "getAll",
+        "jsCode": "// ============================\n// 1️⃣ Safe input extraction\n// ============================\nconst raw =\n  $json?.body ??\n  $json ??\n  {};\n\nif (typeof raw !== 'object' || Array.isArray(raw)) {\n  throw new Error('Invalid webhook payload: expected JSON object');\n}\n\n// ============================\n// 2️⃣ Required fields + types\n// ============================\nconst SCHEMA = {\n  firstName: 'string',\n  lastName: 'string',\n  email: 'string',\n  website: 'string',\n  phoneNumber: 'string',\n  companyName: 'string',\n  linkedInURL: 'string'\n};\n\nconst errors = [];\n\n// ============================\n// 3️⃣ Field validation\n// ============================\nfor (const [field, type] of Object.entries(SCHEMA)) {\n  if (!(field in raw)) {\n    errors.push(`Missing field: ${field}`);\n    continue;\n  }\n\n  if (typeof raw[field] !== type) {\n    errors.push(`Invalid type for ${field}, expected ${type}`);\n    continue;\n  }\n\n  if (!raw[field].trim()) {\n    errors.push(`Empty value for ${field}`);\n  }\n}\n\n// ============================\n// 4️⃣ Format validation\n// ============================\nif (!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(raw.email)) {\n  errors.push('Invalid email format');\n}\n\nif (!/^\\+?[0-9]{8,15}$/.test(raw.phoneNumber.replace(/\\s/g, ''))) {\n  errors.push('Invalid phone number format');\n}\n\nif (!raw.linkedInURL.includes('linkedin.com')) {\n  errors.push('Invalid LinkedIn URL');\n}\n\n// ============================\n// 5️⃣ Fail fast if invalid\n// ============================\nif (errors.length) {\n  throw new Error(`Validation failed → ${errors.join(' | ')}`);\n}\n\n// ============================\n// 6️⃣ Idempotency key\n// ============================\nconst idempotencyKey = Buffer\n  .from(`${raw.email}|${raw.phoneNumber}`)\n  .toString('base64');\n\n// ============================\n// 7️⃣ Output contract\n// ============================\nreturn {\n  json: {\n    ...raw,\n    _meta: {\n      validatedAt: new Date().toISOString(),\n      idempotencyKey,\n      source: 'inbound-webhook',\n      schemaVersion: 'v1'\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3168,
+        0
+      ],
+      "id": "d64c0a45-2d2f-4749-80a7-0047af6cc550",
+      "name": "Validate Required Fields"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================\n// 1️⃣ Depend ONLY on previous node contract\n// ============================\nconst input = $json ?? {};\n\nconst safe = (v, fallback = '') =>\n  typeof v === 'string' && v.trim() ? v.trim() : fallback;\n\n// ============================\n// 2️⃣ Safe field extraction\n// ============================\nconst firstName = safe(input.firstName, 'there');\nconst lastName = safe(input.lastName);\nconst companyName = safe(input.companyName, 'the company');\nconst linkedInURL = safe(input.linkedInURL);\nconst website = safe(input.website);\nconst phoneNumber = safe(input.phoneNumber);\nconst email = safe(input.email);\n\n// ============================\n// 3️⃣ Defensive check (hard stop only if critical)\n// ============================\nif (!linkedInURL || !companyName) {\n  throw new Error('Critical fields missing for prompt generation');\n}\n\n// ============================\n// 4️⃣ Deterministic, controlled prompt\n// ============================\nconst prompt = `\nYou are an expert B2B outbound sales copywriter.\n\nTASK:\nGenerate a 4-step LinkedIn cold outreach sequence.\n\nPROSPECT DETAILS:\n- First Name: ${firstName}\n- Last Name: ${lastName}\n- Company: ${companyName}\n- Website: ${website}\n- LinkedIn Profile: ${linkedInURL}\n- Phone Number: ${phoneNumber}\n\nRULES:\n- No emojis\n- No markdown\n- No bullet points\n- No JSON\n- Plain text only\n- Professional but friendly tone\n- Each step must be short and actionable\n\nOUTPUT:\nReturn ONLY the message sequence text.\n`.trim();\n\n// ============================\n// 5️⃣ Stable output contract\n// ============================\nreturn {\n  json: {\n    prompt,\n    toEmail: email,\n    firstName,\n    lastName,\n    companyName,\n    website,\n    linkedInURL,\n    phoneNumber,\n\n    _meta: {\n      promptVersion: 'v1.0',\n      generatedAt: new Date().toISOString(),\n      idempotencyKey: input._meta?.idempotencyKey ?? null,\n      source: 'prompt-preparation-node'\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2944,
+        112
+      ],
+      "id": "274904b0-620a-4f9d-aea7-ebf1ff1be687",
+      "name": "Prepare AI Prompt"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://gemini-server-wheat.vercel.app/generate",
+        "sendBody": true,
+        "specifyBody": "=json",
+        "bodyParameters": {
+          "parameters": [
+            {}
+          ]
+        },
+        "jsonBody": "={\n  \"prompt\": \"You are an expert B2B outbound sales copywriter.\\n\\nTASK:\\nGenerate a 4-step personalized LinkedIn cold outreach message sequence.\\n\\nPROSPECT DETAILS:\\n- First Name: {{$json.firstName}}\\n- Last Name: {{$json.lastName}}\\n- Company Name: {{$json.companyName}}\\n- Website: {{$json.website}}\\n- LinkedIn Profile: {{$json.linkedInURL}}\\n- Phone Number: {{$json.phoneNumber}}\\n\\nRULES:\\n- Use a friendly but professional tone\\n- No emojis\\n- No markdown\\n- No bullet points\\n- No JSON\\n- No headings\\n- Plain text only\\n- Each step should be concise and natural\\n\\nOUTPUT:\\nReturn ONLY the message sequence text. Nothing else.\",\n  \"meta\": {\n    \"promptVersion\": \"v1.0\",\n    \"idempotencyKey\": \"{{$json._meta.idempotencyKey}}\",\n    \"source\": \"n8n-gemini-prompt\"\n  },\n  \"toEmail\": \"{{$json.toEmail}}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2480,
+        112
+      ],
+      "id": "39b79ff7-be16-4ba1-9215-9bb39443b30d",
+      "name": "Generate Outreach Sequence (Gemini API)",
+      "retryOnFail": false,
+      "maxTries": 5,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -2272,
+        16
+      ],
+      "id": "afc9d6f3-d0be-469b-bbf1-1db933d45e1e",
+      "name": "Merge Prospect + AI Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      firstName: $json.firstName,\n      lastName: $json.lastName,\n      website: $json.website,\n      phoneNumber: $json.phoneNumber,\n      companyName: $json.companyName,\n      linkedInURL: $json.linkedInURL,\n      email: $json.email,\n      ai_response:$json.data,\n      timestamp: new Date().toISOString(),\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2048,
+        16
+      ],
+      "id": "ef8049d6-11b2-4014-9e81-90d6f4b64d9c",
+      "name": "Format for DB"
+    },
+    {
+      "parameters": {
         "tableId": "outreach_data",
-        "limit": 1,
-        "filters": {
-          "conditions": [
+        "fieldsUi": {
+          "fieldValues": [
             {
-              "keyName": "PhoneNumber",
-              "condition": "eq",
-              "keyValue": "={{ $json.body.call.to_number }}"
+              "fieldId": "firstName",
+              "fieldValue": "={{$input.item.json.firstName}}"
+            },
+            {
+              "fieldId": "lastName",
+              "fieldValue": "= {{$input.item.json.lastName}}"
+            },
+            {
+              "fieldId": "website",
+              "fieldValue": "= {{$input.item.json.website}}"
+            },
+            {
+              "fieldId": "PhoneNumber",
+              "fieldValue": "={{$input.item.json.phoneNumber}}"
+            },
+            {
+              "fieldId": "companyName",
+              "fieldValue": "={{$input.item.json.companyName}}"
+            },
+            {
+              "fieldId": "linkedInURL",
+              "fieldValue": "={{$input.item.json.linkedInURL}}"
+            },
+            {
+              "fieldId": "=aiResponse",
+              "fieldValue": "={{$json.ai_response}}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{new Date().toISOString()}}"
+            },
+            {
+              "fieldId": "email",
+              "fieldValue": "={{$input.item.json.email}}"
             }
           ]
         }
@@ -33,17 +141,254 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -1936,
-        704
+        -1824,
+        112
       ],
-      "id": "76638dc6-f408-4473-93b7-df5e2290f004",
-      "name": "Get many rows",
+      "id": "13a0f156-ec6f-40d7-88af-147b8b5d383c",
+      "name": "Save Outreach Data (Supabase)",
+      "alwaysOutputData": false,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
+    },
+    {
+      "parameters": {
+        "fromEmail": "tonystark57ts@gmail.com",
+        "toEmail": "={{ $json[\"email\"] }}",
+        "subject": "AI-generated personalized LinkedIn outreach sequence",
+        "html": "=<h2>Hello {{ $json.firstName || 'there' }},</h2>\n\n<p>\nHere’s your <strong>AI-generated, personalized LinkedIn outreach sequence</strong>\nbased on the prospect details you provided:\n</p>\n\n<pre style=\"\n  background-color:#f4f4f4;\n  padding:14px;\n  border-radius:6px;\n  font-size:14px;\n  white-space:pre-wrap;\n  word-wrap:break-word;\n\">\n{{ $json.aiResponse }}\n</pre>\n\n<p style=\"font-size:12px;color:#666;\">\nGenerated on {{ $json.timestamp }}\n</p>\n\n<p>\nRegards,<br/>\n<strong>Tony’s AI Assistant 🤖</strong>\n</p>\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -1600,
+        112
+      ],
+      "id": "6354f331-eafb-43dd-a286-34b5cfd56682",
+      "name": "Send Outreach Email",
+      "webhookId": "e4643e55-603d-4d5e-aa25-f3b9abceb8ac",
+      "credentials": {
+        "smtp": {
+          "id": "Jg5aEAzSV4cWcuRL",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =======================================\n// Log Email Status — Production Grade\n// =======================================\n\n// 1️⃣ Start time (from upstream node)\nconst startTime =\n  typeof $json.startTime === 'number'\n    ? $json.startTime\n    : null;\n\n// 2️⃣ Compute execution duration\nconst endTime = Date.now();\nconst timeTakenMs =\n  startTime !== null ? endTime - startTime : undefined;\n\n// 3️⃣ Normalize SMTP response shape\nconst accepted = Array.isArray($json.accepted) ? $json.accepted : [];\nconst rejected = Array.isArray($json.rejected) ? $json.rejected : [];\n\n// 4️⃣ Delivery classification\nlet deliveryStatus = 'UNKNOWN';\n\nif (accepted.length > 0 && rejected.length === 0) {\n  deliveryStatus = 'DELIVERED';\n} else if (accepted.length > 0 && rejected.length > 0) {\n  deliveryStatus = 'PARTIAL_DELIVERY';\n} else if (accepted.length === 0 && rejected.length > 0) {\n  deliveryStatus = 'FAILED';\n}\n\n// 5️⃣ Hard error detection (SMTP node throws on fatal error)\nconst status = $json?.error ? 'Error' : 'Success';\n\n// 6️⃣ Correlation metadata\nconst meta = $json._meta ?? {};\n\n// 7️⃣ Final structured log\nreturn {\n  json: {\n    apiName: 'SMTP Email',\n\n    // High-level status\n    status,\n    deliveryStatus,\n\n    // Recipient stats\n    acceptedCount: accepted.length,\n    rejectedCount: rejected.length,\n    acceptedRecipients: accepted,\n    rejectedRecipients: rejected,\n\n    // SMTP-level details\n    smtpResponse: $json.response ?? null,\n    messageId: $json.messageId ?? null,\n    messageSize: $json.messageSize ?? null,\n\n    // Timing\n    timeTakenMs,\n\n    // Traceability\n    //idempotencyKey: meta.idempotencyKey ?? null,\n    executionId: $execution.id,\n    workflowName: $workflow.name,\n    timestamp: new Date().toISOString()\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1376,
+        112
+      ],
+      "id": "c080813c-cf2c-4696-909f-70d8bdc2656d",
+      "name": "Log Email Status"
+    },
+    {
+      "parameters": {
+        "tableId": "=api_logs",
+        "dataToSend": "=defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "apiName",
+              "fieldValue": "={{ $json.apiName }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "= {{ $json.status }}"
+            },
+            {
+              "fieldId": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1152,
+        112
+      ],
+      "id": "9e914af1-4e49-4940-9447-8425d59e7279",
+      "name": "Save API Logs",
+      "credentials": {
+        "supabaseApi": {
+          "id": "ZK0s8PYrJsYQVn5I",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -928,
+        32
+      ],
+      "id": "95fd4777-4aac-4e2f-8c90-c56bb77035d8",
+      "name": "Merge Data Before Scraper"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all()\n  .filter(item => {\n    // Keep only prospect-type items\n    return (\n      typeof item.json.firstName === 'string' &&\n      item.json.firstName.trim() !== ''\n    );\n  })\n  .map(item => {\n    const json = { ...item.json };\n\n    // Normalize website\n    if (typeof json.website === 'string' && json.website.trim() !== '') {\n      json.website = json.website.startsWith('http')\n        ? json.website.trim()\n        : 'https://' + json.website.trim();\n    }\n\n    // Normalize LinkedIn URL\n    if (typeof json.linkedInURL === 'string' && json.linkedInURL.trim() !== '') {\n      json.linkedInURL = json.linkedInURL.startsWith('http')\n        ? json.linkedInURL.trim()\n        : 'https://' + json.linkedInURL.trim();\n    }\n\n    return { json };\n  });\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        32
+      ],
+      "id": "8dc73ae9-d36d-40d6-b43c-aef60218dd34",
+      "name": "Fix Website URL"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ==========================================\n// LINKEDIN SCRAPER - FALLBACK DATA (TESTING)\n// Uses intelligent fallback for demo/testing\n// ==========================================\n\nconst items = $input.all();\nconst processedItems = [];\n\nfor (const item of items) {\n  const prospect = item.json;\n  const linkedInURL = prospect.linkedInURL || '';\n  \n  if (!linkedInURL || linkedInURL.trim() === '') {\n    processedItems.push({ \n      json: {\n        ...prospect,\n        linkedin_enrichment: { success: false, error: 'No LinkedIn URL provided' },\n        linkedin_scraped_at: new Date().toISOString(),\n        linkedin_profile_headline: prospect.jobTitle || '',\n        linkedin_current_position: prospect.jobTitle ? `${prospect.jobTitle} at ${prospect.companyName}` : '',\n        linkedin_location: prospect.city && prospect.state ? `${prospect.city}, ${prospect.state}` : '',\n        linkedin_connection_count: '',\n        linkedin_recent_activity: ''\n      }\n    });\n    continue;\n  }\n  \n  // Generate realistic fallback data based on prospect info\n  const firstName = prospect.firstName || 'Unknown';\n  const jobTitle = prospect.jobTitle || 'Professional';\n  const companyName = prospect.companyName || 'Company';\n  const city = prospect.city || 'City';\n  const state = prospect.state || 'State';\n  \n  // Generate realistic headline variations\n  const headlines = [\n    `${jobTitle} at ${companyName} | Real Estate Technology Enthusiast`,\n    `${jobTitle} | Helping Real Estate Professionals Scale with AI`,\n    `${jobTitle} @ ${companyName} | PropTech Innovator`,\n    `Experienced ${jobTitle} | ${companyName} | Growth & Strategy`,\n    `${jobTitle} specializing in Real Estate Tech Solutions`\n  ];\n  \n  // Generate realistic summary\n  const summary = `Accomplished ${jobTitle} with extensive experience in real estate technology and business development. Currently driving growth initiatives at ${companyName} in ${city}, ${state}. Passionate about leveraging AI and automation to transform how real estate professionals operate. Proven track record in lead generation, client acquisition, and building scalable systems.`;\n  \n  // Generate realistic skills\n  const roleSkills = {\n    'VP of Sales': ['Sales Strategy', 'Business Development', 'Lead Generation', 'CRM Management', 'Team Leadership', 'Negotiation', 'Account Management'],\n    'CEO': ['Strategic Planning', 'Leadership', 'Business Strategy', 'P&L Management', 'Fundraising', 'Product Vision'],\n    'CTO': ['Software Architecture', 'Team Management', 'Technical Strategy', 'Cloud Infrastructure', 'API Design', 'DevOps'],\n    'Marketing': ['Digital Marketing', 'Content Strategy', 'SEO/SEM', 'Social Media', 'Campaign Management', 'Analytics'],\n    'default': ['Communication', 'Project Management', 'Problem Solving', 'Leadership', 'Strategy', 'Analysis']\n  };\n  \n  const skills = roleSkills[jobTitle] || roleSkills['default'];\n  \n  // Generate experience\n  const experience = [\n    {\n      title: jobTitle,\n      company: companyName,\n      duration: '2+ years',\n      description: `Leading strategic initiatives and growth`\n    },\n    {\n      title: `Senior ${jobTitle.replace('VP of ', '').replace('Director of ', '')}`,\n      company: 'Previous Company',\n      duration: '3 years',\n      description: 'Built and scaled operations'\n    }\n  ];\n  \n  // Generate education\n  const education = [\n    {\n      school: 'University',\n      degree: 'Bachelor of Business Administration',\n      field: 'Business',\n      year: '2015'\n    }\n  ];\n  \n  const enrichedProspect = {\n    ...prospect,\n    \n    linkedin_enrichment: {\n      success: true,\n      source: 'fallback_data',\n      profile_url: linkedInURL,\n      extracted_at: new Date().toISOString(),\n      note: 'Using fallback data for testing'\n    },\n    \n    linkedin_scraped_at: new Date().toISOString(),\n    \n    linkedin_profile_headline: headlines[Math.floor(Math.random() * headlines.length)],\n    \n    linkedin_current_position: `${jobTitle} at ${companyName}`,\n    \n    linkedin_location: city && state ? `${city}, ${state}` : 'United States',\n    \n    linkedin_connection_count: Math.floor(Math.random() * 400 + 500) + '+',\n    \n    linkedin_recent_activity: `Recently shared insights about ${Math.random() > 0.5 ? 'real estate technology trends' : 'AI automation in PropTech'}. Active in industry discussions.`,\n    \n    linkedin_full_name: prospect.fullName,\n    \n    linkedin_skills: skills,\n    \n    linkedin_experience: experience,\n    \n    linkedin_education: education,\n    \n    linkedin_summary: summary,\n    \n    linkedin_company: companyName,\n    \n    linkedin_industry: 'Real Estate Technology'\n  };\n  \n  processedItems.push({ json: enrichedProspect });\n  console.log(`✅ Generated fallback data for: ${prospect.fullName}`);\n}\n\nconsole.log(`✅ Processed ${processedItems.length} profiles with fallback data`);\nreturn processedItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -48,
+        32
+      ],
+      "id": "4df44420-1c12-4eb7-a7f5-9f60071618e3",
+      "name": "Scraper Data Cleaning"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nfor (const item of $input.all()) {\n  item.json.myNewField = 1;\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        176,
+        32
+      ],
+      "id": "087c72ba-6600-4936-a656-33e27ec4653c",
+      "name": "Data Format( Retell Prompt)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const toNumber =\n  $json.phoneNumber ||\n  $node[\"Fix Website URL\"].json.phoneNumber;\n\nif (!toNumber) {\n  throw new Error(\"Missing to_number for Retell call\");\n}\n\nreturn {\n  json: {\n    from_number: \"+18155819546\",\n    to_number: toNumber,\n    agent_id: \"agent_df0a754477687fbceabe7f799b\",\n\n    language: \"en-US\",\n    voice_id: \"agent_df0a754477687fbceabe7f799b\",\n\n    // 🔥 THIS IS THE FIX\n    context: {\n      firstName: $json.firstName,\n      lastName: $json.lastName,\n      fullName: `${$json.firstName} ${$json.lastName}`,\n      companyName: $json.companyName,\n      website: $json.website,\n      linkedin: $json.linkedInURL,\n      email: $json.email\n    },\n\n    // Keep AI response as talking points\n    ai_response: $json.ai_response,\n\n    metadata: {\n      source: \"n8n\",\n      executionId: $execution.id,\n      timestamp: new Date().toISOString()\n    }\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        32
+      ],
+      "id": "5a3224d7-18d5-4fcd-9ea7-a00c363e364b",
+      "name": "Retell Call Script"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer key_74c047c615aa895bcb5d514a35a2"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        736,
+        32
+      ],
+      "id": "beb1f09d-39af-4a51-9233-915de5b7187a",
+      "name": "HTTP Request",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "notesInFlow": false,
+      "retryOnFail": false,
+      "waitBetweenTries": 3000,
+      "credentials": {
+        "httpCustomAuth": {
+          "id": "pXBLlmK1QxoryXEX",
+          "name": "Custom Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "aa7beb5a-2785-4a64-af5d-20a2bdcfb44c",
+              "leftValue": "={{ $json.linkedInURL }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -464,
+        32
+      ],
+      "id": "dec2c862-7ef1-4699-858a-9ccd53e9d449",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "amount": 3
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        32
+      ],
+      "id": "44ac3000-0fec-4eb8-ae78-1892111ddcfd",
+      "name": "Wait",
+      "webhookId": "a732a4e2-cc95-4e57-a993-91b562489e85"
     },
     {
       "parameters": {
@@ -59,7 +404,7 @@
                 },
                 "conditions": [
                   {
-                    "leftValue": "={{ $json.normalizedOutcome }}",
+                    "leftValue": "={{ $json.outcome }}",
                     "rightValue": "interested",
                     "operator": {
                       "type": "string",
@@ -84,7 +429,7 @@
                 "conditions": [
                   {
                     "id": "5a00d62d-a8a3-4b4f-8e79-3b192d1b9ce1",
-                    "leftValue": "={{ $json.normalizedOutcome }}",
+                    "leftValue": "={{ $json.outcome }}",
                     "rightValue": "booked appointment",
                     "operator": {
                       "type": "string",
@@ -109,7 +454,7 @@
                 "conditions": [
                   {
                     "id": "b3313f57-8293-4f26-b6aa-9f2363bdde26",
-                    "leftValue": "={{ $json.normalizedOutcome }}",
+                    "leftValue": "={{ $json.outcome }}",
                     "rightValue": "rejected offer",
                     "operator": {
                       "type": "string",
@@ -122,31 +467,6 @@
               },
               "renameOutput": true,
               "outputKey": "Rejected"
-            },
-            {
-              "conditions": {
-                "options": {
-                  "caseSensitive": true,
-                  "leftValue": "",
-                  "typeValidation": "strict",
-                  "version": 2
-                },
-                "conditions": [
-                  {
-                    "id": "95c407c7-ff63-428d-9344-c6c978e6c947",
-                    "leftValue": "={{ $json.normalizedOutcome }}",
-                    "rightValue": "unknown",
-                    "operator": {
-                      "type": "string",
-                      "operation": "equals",
-                      "name": "filter.operator.equals"
-                    }
-                  }
-                ],
-                "combinator": "and"
-              },
-              "renameOutput": true,
-              "outputKey": "Unknown"
             }
           ]
         },
@@ -155,10 +475,10 @@
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3.2,
       "position": [
-        592,
-        1024
+        -400,
+        2096
       ],
-      "id": "81d0010c-4f30-4d60-a4f5-efbb8bb29b8a",
+      "id": "7d8bcc73-3d1f-4979-a48f-e83fb5e9b2db",
       "name": "Switch"
     },
     {
@@ -172,15 +492,15 @@
       "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        1136,
-        640
+        592,
+        1504
       ],
-      "id": "38165c53-9d84-4f2f-beb7-da73dca4a9cd",
+      "id": "d669bf91-6d91-4912-92e2-24bc59689b80",
       "name": "Send email1",
       "webhookId": "015cf318-289b-4f04-bf62-fb138cba3de7",
       "credentials": {
         "smtp": {
-          "id": "MmD0gwisO1k73vyS",
+          "id": "Jg5aEAzSV4cWcuRL",
           "name": "SMTP account"
         }
       }
@@ -194,7 +514,7 @@
             {
               "keyName": "retell_call_id",
               "condition": "eq",
-              "keyValue": "={{ $json.retell_call_id }}"
+              "keyValue": "={{ $node[\"Final Email Exists?\"].json.retell_call_id }}"
             }
           ]
         },
@@ -215,6 +535,10 @@
             {
               "fieldId": "from_email",
               "fieldValue": "tonystark57ts@gmail.com"
+            },
+            {
+              "fieldId": "retry_allowed",
+              "fieldValue": "false"
             }
           ]
         }
@@ -222,15 +546,15 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1136,
-        864
+        2304,
+        2176
       ],
-      "id": "4353bccd-b1cc-4931-983d-05b64e3418e7",
+      "id": "a748f9da-5519-48b0-81e4-a44bf71d21f7",
       "name": "Update a row1",
       "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
@@ -264,7 +588,11 @@
             },
             {
               "fieldId": "outcome",
-              "fieldValue": "={{ $json.normalizedOutcome }}"
+              "fieldValue": "={{ $json.outcome }}"
+            },
+            {
+              "fieldId": "retry_allowed",
+              "fieldValue": "false"
             }
           ]
         }
@@ -272,94 +600,15 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1136,
-        1056
+        752,
+        3056
       ],
-      "id": "f010ebbd-c4af-411d-8111-37fc705442ae",
+      "id": "467a17f8-136e-417c-9e99-09c534b88564",
       "name": "Update a row2",
       "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "tableId": "call_logs",
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "retell_call_id",
-              "condition": "eq",
-              "keyValue": "={{$json.retell_call_id}}"
-            }
-          ]
-        },
-        "fieldsUi": {
-          "fieldValues": [
-            {
-              "fieldId": "next_step",
-              "fieldValue": "\"Manual Review\""
-            },
-            {
-              "fieldId": "email_sent",
-              "fieldValue": "false"
-            },
-            {
-              "fieldId": "flagged_for_review",
-              "fieldValue": "true"
-            },
-            {
-              "fieldId": "notes",
-              "fieldValue": "\"Outcome Unknown – needs manual review\""
-            }
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [
-        1152,
-        1264
-      ],
-      "id": "35464153-478c-42cc-88e7-95e66a41ddf1",
-      "name": "Update a row3",
-      "alwaysOutputData": true,
-      "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "operation": "get",
-        "tableId": "call_logs",
-        "filters": {
-          "conditions": [
-            {
-              "keyName": "retell_call_id",
-              "keyValue": "={{ $json[\"retell_call_id\"] }}"
-            }
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [
-        128,
-        160
-      ],
-      "id": "5fc4e463-53f4-44dc-a955-9bf81747d87e",
-      "name": "Get a row",
-      "alwaysOutputData": true,
-      "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
@@ -374,15 +623,23 @@
             {
               "keyName": "retell_call_id",
               "condition": "eq",
-              "keyValue": "={{ $json.retell_call_id }}"
+              "keyValue": "{{ $json.retell_call_id }}"
             }
           ]
         },
         "fieldsUi": {
           "fieldValues": [
             {
-              "fieldId": "attempts",
-              "fieldValue": "={{ $json.attempts }}"
+              "fieldId": "next_step",
+              "fieldValue": "Exhausted – No Answer"
+            },
+            {
+              "fieldId": "retry_allowed",
+              "fieldValue": "false"
+            },
+            {
+              "fieldId": "exhausted_at",
+              "fieldValue": "now()"
             }
           ]
         }
@@ -390,43 +647,18 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1536,
-        0
+        2160,
+        1040
       ],
-      "id": "48d18861-a545-4d44-856e-de493026a472",
+      "id": "2369a7eb-b67b-4c6f-860a-e18414f89315",
       "name": "Update a row5",
+      "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
-    },
-    {
-      "parameters": {
-        "jsCode": "const code7Data = $node[\"Merge Call + Prospect\"].json;\nreturn [\n  {\n    json: {\n      attempts: $node[\"Parse_Retell_Webhook\"].json.attempts,\n      call_id: $node[\"Parse_Retell_Webhook\"].json.retell_call_id,\n      from_number: \"+16292631068\",\n      to_number: code7Data.PhoneNumber\n    }\n  }\n];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        848,
-        0
-      ],
-      "id": "d69c0da5-3c1c-4514-80ac-8a9f0e383ddc",
-      "name": "Code8"
-    },
-    {
-      "parameters": {
-        "jsCode": "const retell = $json;                 // from HTTP Request (Retell response)\nconst codeData = $node[\"Parse_Retell_Webhook\"].json; // has incremented attempts + retell_call_id\n\nreturn [\n  {\n    json: {\n      ...retell,                      // keep Retell fields\n      attempts: codeData.attempts,    // force attempts from Supabase\n      retell_call_id: codeData.retell_call_id, // keep original ID for update\n      phoneNumber: codeData.phoneNumber,\n      prospect_id: codeData.prospect_id\n    }\n  }\n];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1312,
-        0
-      ],
-      "id": "bf822d8d-e046-4ea7-bc3f-cc020efd52ed",
-      "name": "Code9"
     },
     {
       "parameters": {
@@ -471,14 +703,14 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1344,
-        640
+        848,
+        1504
       ],
-      "id": "b16eb06b-e165-453b-bdd1-2413b9b5443a",
+      "id": "b8f18d78-a8d8-47b1-a8a4-39aebddb9fc1",
       "name": "Create a row3",
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
@@ -524,94 +756,17 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        1520,
-        640
+        1088,
+        1504
       ],
-      "id": "bae47815-34b3-4227-a13b-6afc6e879f5c",
+      "id": "a30e9331-22ac-409f-8395-3865a25de44c",
       "name": "Update a row",
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
-    },
-    {
-      "parameters": {
-        "tableId": "call_analysis_events",
-        "fieldsUi": {
-          "fieldValues": [
-            {
-              "fieldId": "retell_call_id",
-              "fieldValue": "={{ $json.retell_call_id }}"
-            },
-            {
-              "fieldId": "analyzed_at",
-              "fieldValue": "={{ new Date().toISOString() }}"
-            },
-            {
-              "fieldId": "analyzer_version",
-              "fieldValue": "n8n-v1"
-            },
-            {
-              "fieldId": "outcome",
-              "fieldValue": "={{ $json.call_analysis?.custom_analysis_data?.Outcome ?? \"Unknown\" }}"
-            },
-            {
-              "fieldId": "extra",
-              "fieldValue": "={{ { transcriptChars: $json.transcript } }}"
-            }
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [
-        96,
-        624
-      ],
-      "id": "f8246bda-6ac1-4cff-ab9c-4fcab68e5b21",
-      "name": "Create a row4",
-      "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "81d4ba48-4fa7-43a2-953e-5165fa089968",
-              "leftValue": "={{ $json.metric_date }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        2448,
-        1024
-      ],
-      "id": "676065a7-fd13-4eaa-a877-81c2d41323d2",
-      "name": "If"
     },
     {
       "parameters": {
@@ -629,30 +784,30 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        2240,
-        1024
+        3072,
+        2176
       ],
-      "id": "586e1b45-192f-43f2-a9fa-33209874cdc6",
+      "id": "30dd8379-0436-4aef-b6fb-1c895ce217a4",
       "name": "daily_metrics",
       "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "const today = new Date().toISOString().split('T')[0];\n\nconst isUnsuccessful =\n  [\"dial_no_answer\", \"dial_busy\", \"dial_failed\"].includes($json.disconnection_reason || \"\");\n\nconst pickedUp = !isUnsuccessful;\n\n// Prefer normalizedOutcome → outcome → next_step\nconst outcomeText = (\n  $json.normalizedOutcome ||\n  $json.outcome ||\n  $json.next_step ||\n  \"unknown\"\n).toString().trim().toLowerCase();\n\nconst inc = {\n  calls_sent: 1,\n  calls_picked_up: pickedUp ? 1 : 0,\n  rejected_offers: outcomeText === \"rejected offer\" ? 1 : 0,\n  booked_appointments: outcomeText.includes(\"booked appointment\") ? 1 : 0,\n  interested_mailed: (outcomeText === \"interested\" && ($json.email_sent === true)) ? 1 : 0,\n  emails_sent: ($json.email_sent === true) ? 1 : 0\n};\n\nreturn [{\n  json: {\n    metric_date: today,\n    ...inc,\n    from_email: $json.from_email || null,\n    template_key: $json.email_subject ? \"case_studies\" : null\n  }\n}];\n"
+        "jsCode": "const today = new Date().toISOString().split(\"T\")[0];\n\n// ----------------------------\n// Call success logic\n// ----------------------------\nconst isUnsuccessful =\n  [\"dial_no_answer\", \"dial_busy\", \"dial_failed\"]\n    .includes($json.disconnection_reason || \"\");\n\nconst pickedUp = !isUnsuccessful;\n\n// ----------------------------\n// Normalize outcome\n// ----------------------------\nconst outcomeText = (\n  $json.normalizedOutcome ||\n  $json.outcome ||\n  $json.next_step ||\n  \"unknown\"\n).toString().trim().toLowerCase();\n\n// ----------------------------\n// Rejection logic (FIX)\n// ----------------------------\nconst isRejected =\n  outcomeText === \"rejected offer\" || isUnsuccessful;\n\n// ----------------------------\n// Base metric increments\n// ----------------------------\nconst metrics = {\n  metric_date: today,\n  calls_sent: 1,\n  calls_picked_up: pickedUp ? 1 : 0,\n  rejected_offers: isRejected ? 1 : 0,\n  booked_appointments: outcomeText.includes(\"booked appointment\") ? 1 : 0,\n  interested_mailed:\n    outcomeText === \"interested\" && $json.email_sent === true ? 1 : 0,\n  emails_sent: $json.email_sent === true ? 1 : 0\n};\n\n// ----------------------------\n// Conditionally add email fields\n// ----------------------------\nif ($json.email_sent === true) {\n  metrics.from_email = $json.from_email || null;\n  metrics.template_key = $json.email_subject ? \"case_studies\" : null;\n}\n\nreturn [{ json: metrics }];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1968,
-        1024
+        2880,
+        2192
       ],
-      "id": "16e8eeb7-6e83-4843-8282-6bbe948d5cf9",
+      "id": "a47985c6-e13c-4abe-acbf-cd5ef60b5043",
       "name": "ComputeDailyIncrements"
     },
     {
@@ -704,14 +859,14 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        2656,
-        928
+        3440,
+        2080
       ],
-      "id": "fd637b7c-5e04-4c48-b671-d2f1d379d55c",
+      "id": "d7583fa1-45b7-48ea-94dd-973af0ea739d",
       "name": "Update daily_metrics",
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
@@ -759,48 +914,82 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        2656,
-        1120
+        3440,
+        2272
       ],
-      "id": "ca0ea77e-cf9c-4206-a244-0d6361c53275",
+      "id": "55c5365e-f299-455e-9519-53564eedf687",
       "name": "Create daily_metrics",
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
     },
     {
       "parameters": {
-        "operation": "getAll",
-        "tableId": "call_logs",
-        "returnAll": true,
-        "filters": {
-          "conditions": [
+        "method": "POST",
+        "url": "https://api.retellai.com/v2/create-phone-call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpCustomAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
             {
-              "keyName": "retell_call_id",
-              "condition": "eq",
-              "keyValue": "={{ $json.retell_call_id }}"
+              "name": "Authorization",
+              "value": "Bearer key_74c047c615aa895bcb5d514a35a2"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
             }
           ]
-        }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"from_number\": \"+18155819546\",\n  \"to_number\": \"{{ $json.phone_number }}\",\n  \"agent_id\": \"agent_df0a754477687fbceabe7f799b\",\n  \"language\": \"en-US\",\n  \"voice_id\": \"agent_df0a754477687fbceabe7f799b\",\n  \"metadata\": {\n    \"retry_of\": \"{{ $json.retell_call_id }}\",\n    \"parent_call_id\": \"{{ $json.parent_call_id || $json.retell_call_id }}\",\n    \"attempt_number\": {{ $items(\"Get call_id1\")[0].json.attempts }}\n\n\n  }\n}\n",
+        "options": {}
       },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
-        -1200,
-        304
+        1616,
+        592
       ],
-      "id": "db173d35-8af9-479d-9d38-869485680611",
-      "name": "Get many rows2",
-      "alwaysOutputData": false,
+      "id": "6d432755-8289-497d-be9d-3ed24544470c",
+      "name": "Retry_Retell_Call",
       "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
+        "httpCustomAuth": {
+          "id": "pXBLlmK1QxoryXEX",
+          "name": "Custom Auth account"
         }
       }
+    },
+    {
+      "parameters": {
+        "jsCode": "// =============================\n// INPUT\n// =============================\nconst transcriptRaw = $json.transcript || \"\";\nconst transcript = transcriptRaw\n  .toLowerCase()\n  .replace(/[,\\.]/g, \"\");\n\n// =============================\n// 1️⃣ OUTCOME DETECTION\n// =============================\nconst outcomePatterns = {\n  \"Rejected Offer\": [\n    \"not interested\",\n    \"no thanks\",\n    \"dont need\",\n    \"reject\",\n    \"stop calling\",\n    \"go away\",\n    \"already have\",\n    \"not now\",\n    \"not looking\"\n  ],\n  \"Booked Appointment\": [\n    \"book\",\n    \"schedule\",\n    \"set up\",\n    \"arrange\",\n    \"appointment\",\n    \"meeting\",\n    \"confirmed\",\n    \"lets meet\"\n  ],\n  \"Interested\": [\n    \"interested\",\n    \"tell me more\",\n    \"sounds good\",\n    \"send info\",\n    \"send me details\",\n    \"email me\",\n    \"open to discuss\"\n  ],\n  \"Voicemail\": [\n    \"leave a message\",\n    \"voicemail\",\n    \"not available\"\n  ]\n};\n\nlet outcome = \"Unknown\";\n\nfor (const [label, patterns] of Object.entries(outcomePatterns)) {\n  if (patterns.some(p => transcript.includes(p))) {\n    outcome = label;\n    break;\n  }\n}\n\n// =============================\n// 2️⃣ APPOINTMENT PARSING\n// (STRICT: ONLY if Booked)\n// =============================\nlet appointment_time; // intentionally undefined\n\nif (outcome === \"Booked Appointment\") {\n\n  const months = {\n    january:0, february:1, march:2, april:3, may:4, june:5,\n    july:6, august:7, september:8, october:9, november:10, december:11\n  };\n\n  const weekdays = {\n    sunday:0, monday:1, tuesday:2, wednesday:3,\n    thursday:4, friday:5, saturday:6\n  };\n\n  function parseTimePhrase(text) {\n    let hour = 9, minute = 0;\n    const m = text.match(/(\\d{1,2})(:(\\d{2}))?\\s?(am|pm)?/);\n    if (m) {\n      hour = parseInt(m[1]);\n      minute = parseInt(m[3] || \"0\");\n      if (m[4] === \"pm\" && hour < 12) hour += 12;\n      if (m[4] === \"am\" && hour === 12) hour = 0;\n    }\n    return { hour, minute };\n  }\n\n  const now = new Date();\n  let day, month, hour = 9, minute = 0;\n\n  // Absolute date (August 26 at 11:30 am)\n  const abs = transcript.match(\n    /(january|february|march|april|may|june|july|august|september|october|november|december)\\s+(\\d{1,2}).*?(at\\s+([\\w :]+(am|pm)?))?/\n  );\n\n  if (abs) {\n    month = months[abs[1]];\n    day = parseInt(abs[2]);\n    if (abs[4]) {\n      const t = parseTimePhrase(abs[4]);\n      hour = t.hour;\n      minute = t.minute;\n    }\n  }\n\n  // Tomorrow\n  if (!day && transcript.includes(\"tomorrow\")) {\n    const d = new Date();\n    d.setDate(d.getDate() + 1);\n    day = d.getDate();\n    month = d.getMonth();\n\n    const m = transcript.match(/tomorrow at ([\\w :]+(am|pm)?)/);\n    if (m) {\n      const t = parseTimePhrase(m[1]);\n      hour = t.hour;\n      minute = t.minute;\n    }\n  }\n\n  // Next weekday\n  const wd = transcript.match(/next (monday|tuesday|wednesday|thursday|friday|saturday|sunday)/);\n  if (!day && wd) {\n    const target = weekdays[wd[1]];\n    const temp = new Date();\n    while (temp.getDay() !== target) {\n      temp.setDate(temp.getDate() + 1);\n    }\n    day = temp.getDate();\n    month = temp.getMonth();\n  }\n\n  if (day && month !== undefined) {\n    appointment_time = new Date(\n      now.getFullYear(),\n      month,\n      day,\n      hour,\n      minute\n    ).toISOString();\n  }\n}\n\n// =============================\n// 3️⃣ FINAL CLEAN OUTPUT\n// =============================\nconst output = {\n  ...$json,\n\n  call_analysis: {\n    ...( $json.call_analysis || {} ),\n    custom_analysis_data: {\n      Outcome: outcome\n    }\n  }\n};\n\n// ⛔ ONLY add appointment_time if it EXISTS AND is Booked\nif (outcome === \"Booked Appointment\" && appointment_time) {\n  output.appointment_time = appointment_time;\n}\n\nreturn output;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1040,
+        2128
+      ],
+      "id": "16a66c42-a713-45a5-8748-763c12a176f1",
+      "name": "Transform_Call_Data"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  let outcome = item.json?.outcome || \"Unknown\";\n\n  // --- Normalize safely ---\n  let normalized = outcome\n    .toString()\n    .trim()\n    .toLowerCase()\n    .replace(/[^a-z\\s]/g, \"\");\n\n  // --- Map to canonical categories ---\n  const outcomeMap = {\n    \"rejected offer\": [\n      \"rejected offer\",\n      \"not interested\",\n      \"no thanks\",\n      \"reject\",\n      \"stop calling\",\n      \"declined\",\n      \"unsubscribed\"\n    ],\n    \"booked appointment\": [\n      \"booked appointment\",\n      \"appointment\",\n      \"meeting booked\",\n      \"confirmed meeting\",\n      \"scheduled\",\n      \"reserved\",\n      \"call booked\"\n    ],\n    \"interested\": [\n      \"interested\",\n      \"curious\",\n      \"tell me more\",\n      \"send info\",\n      \"follow up\",\n      \"maybe\",\n      \"looking forward\"\n    ],\n    \"voicemail\": [\n      \"voicemail\",\n      \"voice mail\",\n      \"left message\",\n      \"not available\",\n      \"call back later\"\n    ],\n    \"unknown\": [\"unknown\", \"\"]\n  };\n\n  let final = \"unknown\";\n  for (const [canonical, variants] of Object.entries(outcomeMap)) {\n    if (variants.some(v => normalized.includes(v))) {\n      final = canonical;\n      break;\n    }\n  }\n\n  // Overwrite outcome with canonical value (single source of truth)\n  item.json.outcome = final;\n\n  return item;\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -736,
+        2112
+      ],
+      "id": "540ffa80-5483-41b1-8150-1b5ab344c275",
+      "name": "Extract_Outcome"
     },
     {
       "parameters": {
@@ -813,12 +1002,12 @@
           },
           "conditions": [
             {
-              "id": "25c9e343-72be-4020-90b9-081eaa60949b",
-              "leftValue": "={{ ($items(\"Get many rows2\") || []).length > 0 }}",
-              "rightValue": "true",
+              "id": "81d4ba48-4fa7-43a2-953e-5165fa089968",
+              "leftValue": "={{ $json.metric_date }}",
+              "rightValue": "",
               "operator": {
-                "type": "boolean",
-                "operation": "true",
+                "type": "string",
+                "operation": "notEmpty",
                 "singleValue": true
               }
             }
@@ -830,350 +1019,206 @@
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -976,
-        560
+        3232,
+        2176
       ],
-      "id": "86511b64-b690-4f75-be12-2056c2409f04",
-      "name": "If1"
+      "id": "e6b7919d-ceaf-43c5-a269-0b7ea144c3d6",
+      "name": "If3"
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "2198f95f-00a7-4d60-a9cb-160e5a0061ea",
-        "responseMode": "lastNode",
-        "responseData": "allEntries",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.webhook",
-      "typeVersion": 2,
-      "position": [
-        -2624,
-        -544
-      ],
-      "id": "235584eb-44ba-40a8-bb1f-a1c5210e61a3",
-      "name": "Inbound Webhook",
-      "webhookId": "2198f95f-00a7-4d60-a9cb-160e5a0061ea"
-    },
-    {
-      "parameters": {
-        "jsCode": "const input = $input.item.json.body;\n\nconst requiredFields = [\n  \"firstName\",\n  \"lastName\",\n  \"email\",\n  \"website\",\n  \"phoneNumber\",\n  \"companyName\",\n  \"linkedInURL\"\n];\n\nfor (const field of requiredFields) {\n  if (!input[field]) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\nreturn input;\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2400,
-        -544
-      ],
-      "id": "df638297-1836-415c-b14b-c8e7c33158f4",
-      "name": "Validate Required Fields"
-    },
-    {
-      "parameters": {
-        "jsCode": "const input = $input.item.json;\n\nreturn {\n  json: {\n    prompt: `Generate a personalized LinkedIn messaging sequence for a \nB2B SaaS company named ${input.companyName}. The prospect is at \nthis LinkedIn profile: ${input.linkedInURL}. Include the prospect's first \nname: ${input.firstName}, last name: ${input.lastName}, website: ${input.website}, \nphone number: ${input.phoneNumber}.`,\n\n    toEmail: input.email,  // For SMTP Node\n    name: `${input.firstName} ${input.lastName}`,  // Full name for greeting\n    company: input.companyName,\n    linkedIn: input.linkedInURL\n  }\n};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2176,
-        -432
-      ],
-      "id": "155c8757-0681-48f6-a95d-b5b58c3da623",
-      "name": "Prepare AI Prompt"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://gemini-server-wheat.vercel.app/generate",
-        "sendBody": true,
-        "specifyBody": "=json",
-        "bodyParameters": {
-          "parameters": [
-            {}
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $node[\"Parse & Normalize Call Data\"].json.disconnection_reason }}",
+                    "rightValue": "voicemail_reached",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "ef78ba00-0d68-4152-b166-06ddd27437ce"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ba29d7b9-6b6c-407d-b7ac-5fcdcccb8fb4",
+                    "leftValue": "={{ $node[\"Parse & Normalize Call Data\"].json.disconnection_reason }}",
+                    "rightValue": "dial_busy",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "e4f0c5c2-e1ef-4fd8-857c-fd3d7d023316",
+                    "leftValue": "={{ $node[\"Parse & Normalize Call Data\"].json.disconnection_reason }}",
+                    "rightValue": "dial_no_answer",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "bcc2c85e-e565-4863-a63d-a6c3633e754f",
+                    "leftValue": "={{ $node[\"Parse & Normalize Call Data\"].json.disconnection_reason }}",
+                    "rightValue": "dial_failed",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
           ]
         },
-        "jsonBody": "={\n  \"prompt\": \"Generate a personalized LinkedIn messaging sequence for a B2B SaaS company named {{$json.companyName}}. The prospect's LinkedIn profile is {{$json.linkedInURL}}. Their name is {{$json.firstName}} {{$json.lastName}}, website: {{$json.website}}, phone number: {{$json.phoneNumber}}. Use a friendly and professional tone. Return ONLY the sequence. Do NOT include Markdown formatting or JSON. Just the message sequence in plain text.\",\n  \"toEmail\": \"{{$json.email}}\"\n}\n",
+        "looseTypeValidation": true,
         "options": {}
       },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
       "position": [
-        -1728,
-        -432
+        768,
+        544
       ],
-      "id": "2531fc89-9fbd-4ce1-99b8-3520d21c75a6",
-      "name": "Generate Outreach Sequence (Gemini API)"
+      "id": "53a55305-b36f-48b5-b892-c2e4a450a118",
+      "name": "Switch1"
     },
     {
       "parameters": {
-        "mode": "combine",
-        "combineBy": "combineByPosition",
-        "options": {}
+        "amount": 1,
+        "unit": "minutes"
       },
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
       "position": [
-        -1504,
-        -528
+        1168,
+        384
       ],
-      "id": "540dcaca-fdf6-47c4-ba6a-356b526e7957",
-      "name": "Merge Prospect + AI Response"
+      "id": "cb0f37bc-8f34-4fb2-999a-d800a6ed91c7",
+      "name": "Wait for voicemail",
+      "webhookId": "618eab3a-18f2-4009-8119-0707fa795bda"
     },
     {
       "parameters": {
-        "jsCode": "return [\n  {\n    json: {\n      firstName: $json.firstName,\n      lastName: $json.lastName,\n      middleName: $json.middleName || '',\n      website: $json.website,\n      phoneNumber: $json.phoneNumber,\n      companyName: $json.companyName,\n      linkedInURL: $json.linkedInURL,\n      email: $json.email,\n      aiResponse: $json.response.candidates[0].content.parts[0].text,\n      timestamp: new Date().toISOString(),\n    }\n  }\n];\n"
+        "amount": 1,
+        "unit": "minutes"
       },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
       "position": [
-        -1280,
-        -528
+        1168,
+        560
       ],
-      "id": "8f0d90d4-edd3-4ea3-be9b-133f3d636e98",
-      "name": "Format for DB"
+      "id": "90c33891-a00a-4570-ac38-5a70c6ba67d6",
+      "name": "Wait for busy",
+      "webhookId": "eb24e456-19e5-4eb9-9087-2c30b470bcf2"
     },
     {
       "parameters": {
-        "tableId": "outreach_data",
-        "fieldsUi": {
-          "fieldValues": [
-            {
-              "fieldId": "firstName",
-              "fieldValue": "={{$input.item.json.firstName}}"
-            },
-            {
-              "fieldId": "lastName",
-              "fieldValue": "= {{$input.item.json.lastName}}"
-            },
-            {
-              "fieldId": "MiddleName",
-              "fieldValue": "= {{$input.item.json.middleName}}"
-            },
-            {
-              "fieldId": "website",
-              "fieldValue": "= {{$input.item.json.website}}"
-            },
-            {
-              "fieldId": "PhoneNumber",
-              "fieldValue": "={{$input.item.json.phoneNumber}}"
-            },
-            {
-              "fieldId": "companyName",
-              "fieldValue": "={{$input.item.json.companyName}}"
-            },
-            {
-              "fieldId": "linkedInURL",
-              "fieldValue": "={{$input.item.json.linkedInURL}}"
-            },
-            {
-              "fieldId": "=aiResponse",
-              "fieldValue": "={{$input.item.json.aiResponse}}"
-            },
-            {
-              "fieldId": "timestamp",
-              "fieldValue": "={{new Date().toISOString()}}"
-            },
-            {
-              "fieldId": "email",
-              "fieldValue": "={{$input.item.json.email}}"
-            }
-          ]
-        }
+        "amount": 1,
+        "unit": "minutes"
       },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
       "position": [
-        -1056,
-        -432
+        1168,
+        720
       ],
-      "id": "39272637-b9b6-4600-baca-0ba2c2f5f819",
-      "name": "Save Outreach Data (Supabase)",
-      "alwaysOutputData": false,
-      "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
-        }
-      }
+      "id": "37c29694-ad76-4895-bae6-6d7630aa0944",
+      "name": "Wait for no answer",
+      "webhookId": "d236a3ae-001c-4d04-b15d-81b3446b7b0a"
     },
     {
       "parameters": {
-        "fromEmail": "tonystark57ts@gmail.com",
-        "toEmail": "={{ $json[\"email\"] }}",
-        "html": "=<h2>Hello {{ $json[\"firstName\"] }},</h2>\n<p>Here’s your personalized LinkedIn outreach sequence:</p>\n\n<pre style=\"background-color:#f2f2f2;padding:10px;\">\n{{ $json[\"aiResponse\"] }}\n</pre>\n\n<p>Regards,<br/>Tony’s AI Assistant 🤖</p>\n",
-        "options": {}
+        "amount": 1,
+        "unit": "minutes"
       },
-      "type": "n8n-nodes-base.emailSend",
-      "typeVersion": 2.1,
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
       "position": [
-        -832,
-        -432
+        1168,
+        896
       ],
-      "id": "22e1f770-a766-472a-be61-cf0a6b150242",
-      "name": "Send Outreach Email",
-      "webhookId": "e4643e55-603d-4d5e-aa25-f3b9abceb8ac",
-      "credentials": {
-        "smtp": {
-          "id": "MmD0gwisO1k73vyS",
-          "name": "SMTP account"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "const startTime = $items(\"Start Timer\")[0].json.startTime;\nconst endTime = Date.now();\n\nconst executionTime = endTime - startTime;\nconst now = new Date().toISOString();\n\nconst response = $json.response || '';\nconst status = response.includes(\"OK\") ? \"Success\" : \"Error\";\n\nreturn {\n  apiName: \"Email\", // or Email or Retell — change dynamically if needed\n  status,\n  timeTaken: executionTime,\n  timestamp: now\n};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -608,
-        -432
-      ],
-      "id": "7ff45950-604e-4cee-84bd-9eff2441fa3f",
-      "name": "Log Email Status"
-    },
-    {
-      "parameters": {
-        "tableId": "=api_logs",
-        "dataToSend": "=defineBelow",
-        "fieldsUi": {
-          "fieldValues": [
-            {
-              "fieldId": "apiName",
-              "fieldValue": "={{ $json.apiName }}"
-            },
-            {
-              "fieldId": "status",
-              "fieldValue": "= {{ $json.status }}"
-            },
-            {
-              "fieldId": "timeTaken",
-              "fieldValue": "={{ $json.timeTaken }}"
-            },
-            {
-              "fieldId": "timestamp",
-              "fieldValue": "={{ $json.timestamp }}"
-            }
-          ]
-        }
-      },
-      "type": "n8n-nodes-base.supabase",
-      "typeVersion": 1,
-      "position": [
-        -384,
-        -432
-      ],
-      "id": "e60d8e81-467e-45fd-8b2d-06919c0b32c5",
-      "name": "Save API Logs",
-      "credentials": {
-        "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
-          "name": "Supabase account"
-        }
-      }
+      "id": "cc58e577-de63-492a-a3d8-3d3be8569c6a",
+      "name": "Wait for failed",
+      "webhookId": "9482f8c3-191c-41d3-af0a-a60988c6bab6"
     },
     {
       "parameters": {},
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
-      "position": [
-        -160,
-        -512
-      ],
-      "id": "05a388c8-98b9-41e1-b354-62fef422c58b",
-      "name": "Merge Data Before Scraper"
-    },
-    {
-      "parameters": {
-        "jsCode": "let website = $json.website || '';\n\n// Same protocol check\nif (!website.startsWith('http://') && !website.startsWith('https://')) {\n  website = 'https://' + website;\n}\n\nreturn {\n  json: {\n    ...$json,\n    website\n  }\n};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        64,
-        -512
-      ],
-      "id": "44ddf538-61aa-4b0c-9413-79965ea786e6",
-      "name": "Fix Website URL"
-    },
-    {
-      "parameters": {
-        "command": "=node /Users/admin/OneDrive/Desktop/linkedin-scraper/cli.js \"{{$json[\"linkedInURL\"]}}\""
-      },
-      "type": "n8n-nodes-base.executeCommand",
+      "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        288,
-        -512
+        2432,
+        1040
       ],
-      "id": "f7e6f289-c2b7-4d17-bec6-ebc111ae7eb9",
-      "name": "LinkedIn Scraper"
-    },
-    {
-      "parameters": {
-        "language": "python",
-        "pythonCode": "import json\nimport re\n\n# Input: full command stdout\nraw_output = items[0]['json']['stdout']\n\n# Step 1: Extract the last JSON object from the stdout using regex\nmatches = re.findall(r'\\{.*\\}', raw_output, re.DOTALL)\n\nif not matches:\n    raise ValueError(\"No JSON found in stdout\")\n\n# Get the last JSON object from matches (which should be the scraped data)\nraw_json = matches[-1]\n\n# Step 2: Parse JSON\ndata = json.loads(raw_json)\n\n# Step 3: Clean fields\ncleaned = {\n    'name': data.get('name', 'Unknown').strip(),\n    'headline': data.get('headline', 'Unknown').strip(),\n    'industry': data.get('industry', 'Unknown').strip(),\n    'companySize': data.get('companySize', 'Unknown').strip(),\n    'location': data.get('location', 'Unknown').strip(),\n    'followers': data.get('followers', 'Unknown').strip(),\n    'website': data.get('website', 'Unknown').strip(),\n    'timestamp': data.get('timestamp', '').strip()\n}\n\n# Step 4: Return cleaned output\nreturn [{ 'json': cleaned }]\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        512,
-        -512
-      ],
-      "id": "75711faa-1b7c-48ca-94a4-cbc2238db2dc",
-      "name": "Scraper Data Cleaning"
-    },
-    {
-      "parameters": {
-        "language": "python",
-        "pythonCode": "import json\n\n# Extract JSON input from n8n\ndata = items[0]['json']\n\n# Compose the Retell AI prompt\nprompt = f\"\"\"\nYou are an industry-grade AI Voice Caller working for a real estate firm.\n\nYour job is to call **{data.get('firstName', 'N/A')} {data.get('lastName', '')}**, a representative of **{data.get('companyName', 'N/A')}**.\n\n📌 Use the following data to guide your call:\n- 🧑 LinkedIn Profile: {data.get('linkedInURL', 'N/A')}\n- 🌐 Website: {data.get('website', 'N/A')}\n- 🏭 Industry: {data.get('industry', 'N/A')}\n- 👥 Company Size: {data.get('companySize', 'N/A')}\n- 🤖 AI-Generated LinkedIn Cold Outreach Sequence: \n{data.get('aiResponse', 'N/A')}\n\n🎯 Goal:\nBook a discovery appointment on cal.com with the prospect.\n\n📞 Instructions:\nYour call should feel human, enthusiastic, and consultative — not robotic. Start with a soft opener, mention their industry or website, reference their LinkedIn profile, and bring up your offer as a real estate firm that helps businesses find the perfect workspaces.\n\n💬 Include these in the script:\n1. Opening: Greet and confirm if it's a good time to chat.\n2. Personal Hook: Mention something from their company, size, or site.\n3. Pitch: Explain who you are and why you're calling.\n4. Value Prop: Benefits of using your real estate services.\n5. Objection Handling: Prepare for responses like “We’re not looking”, “Send me an email”, or “Too busy”.\n6. Call-to-Action: Try to book a call directly on cal.com.\n\n🔁 Alternate Paths:\n- If they ask about pricing, offer to discuss in the cal.com call.\n- If they seem interested but busy, offer to follow up with a booking link.\n- If uninterested, thank them and move on politely.\n\n📅 Closing:\n“Would you be open to a quick 15-minute call next week? I can send over a cal.com link right now.”\n\n🗂 Include fallback scripts and transitions.\n\n\"\"\" + \"\\n\\n\" + (\"# Expand here with up to 22,000 characters of detailed script, examples, fallback conversations, and templates.\" * 50)\n\n# Output final prompt\nreturn [{ 'json': { 'prompt': prompt } }]\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        736,
-        -512
-      ],
-      "id": "ed52173d-eac8-4c56-a437-c3b0bf316d87",
-      "name": "Data Format( Retell Prompt)"
-    },
-    {
-      "parameters": {
-        "jsCode": "return [{\n  json: {\n    from_number: \"+16292631068\",\n    to_number: \"+918184835291\",\n    prompt: $input.all()[0].json.prompt,\n    voiceId: \"agent_bdf7d7b13d952dfc68cba2a52d\",\n    language: \"en-US\"\n  }\n}];"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        960,
-        -512
-      ],
-      "id": "70b00c1d-1c5e-4d90-a6de-10d4dede355c",
-      "name": "Final format (Retell Payload)"
-    },
-    {
-      "parameters": {
-        "jsCode": "const firstName = $node[\"Fix Website URL\"].json.firstName || \"there\";\nconst lastName = $node[\"Fix Website URL\"].json.lastName || \"\";\nconst companyName = $node[\"Fix Website URL\"].json.companyName || \"your company\";\nconst industry = $node[\"Fix Website URL\"].json.industry || \"Unknown industry\";\nconst companySize = $node[\"Fix Website URL\"].json.companySize || \"Unknown size\";\nconst location = $node[\"Fix Website URL\"].json.location || \"Unknown location\";\nconst website = $node[\"Fix Website URL\"].json.website || \"Not provided\";\nconst linkedInURL = $node[\"Fix Website URL\"].json.linkedInURL || \"Not available\";\nconst email = $node[\"Fix Website URL\"].json.email || \"your@email.com\";\n\nconst calLink = \"https://cal.com/your-link\";\nconst yourNumber = \"+16292631068\";\n\n// ==================== FULL SCRIPT ====================\nlet template = `\n# REAL ESTATE AI VOICE CALLER SCRIPT\n\nHi ${firstName}, this is Alex Morgan from Prestige Properties. \nI was researching companies in the ${industry} space and came across ${companyName} - really impressed with what you're building. \nDo you have 90 seconds to discuss your office space needs?\n\n---\n\n## VALUE PROPOSITION\n\"Our clients typically achieve 3 key benefits:\n1. Cost Reduction: 15-30% lower occupancy costs\n2. Productivity Boost: Workspace designs that increase team collaboration\n3. Flexibility: Scalable solutions that grow with your business\n\nWe recently helped a ${companySize} ${industry} company in ${location} save significant costs while doubling collaboration space.\"\n\n---\n\n## OBJECTION HANDLING\n\n**\"We're not looking right now\"**\n\"Completely understand, ${firstName}. Most companies we work with weren’t actively looking when we first spoke. This is the best time to explore without pressure.\"\n\n**\"Send me an email\"**\n\"Happy to follow up at ${email}. To make it valuable, what specific challenges are you facing?\"\n\n**\"We just renewed our lease\"**\n\"Congrats! Renewal is often the best time to negotiate better terms. Worth a quick chat?\"\n\n**\"Too expensive\"**\n\"I appreciate budget concerns, ${firstName}. Our service usually pays for itself — consultation is free.\"\n\n**\"We're remote/hybrid\"**\n\"Many ${industry} companies are hybrid. We’re helping firms in ${location} set up hub-and-spoke models.\"\n\n---\n\n## CAL.COM BOOKING\n\"${firstName}, I’d love to show you options for ${companyName}. \nI have slots Tuesday or Wednesday — which works better? \nOtherwise I can send a booking link: ${calLink}\"\n\n---\n\n## VOICEMAIL SCRIPT\n\"Hi ${firstName}, Alex Morgan from Prestige Properties. \nWe specialize in helping ${industry} companies like ${companyName} optimize office space. \nCall me back at ${yourNumber} or book directly: ${calLink}.\"\n\n---\n\nThis call may be recorded for quality and training purposes. \nAll info is confidential under our privacy policy at prestige-properties.com/privacy.\n`;\n\n// ==================== RETURN TO RETELL ====================\nreturn {\n  json: {\n    from_number: yourNumber,\n    to_number: $json.phoneNumber || $node[\"Fix Website URL\"].json.phoneNumber,\n    prompt: template,\n    voiceId: \"agent_bdf7d7b13d952dfc68cba2a52d\",\n    language: \"en-US\"\n  }\n};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1168,
-        -512
-      ],
-      "id": "820200a1-e1f2-4902-8a8d-833632ff2557",
-      "name": "Retell Call Script"
+      "id": "5db36d41-b786-4681-ab58-167fd3a4f47b",
+      "name": "No Operation, do nothing2"
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "https://api.retellai.com/v2/create-phone-call",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpBearerAuth",
+        "url": "https://icanuwdivtfdsmxytkbv.supabase.co/rest/v1/rpc/increment_attempts",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
+              "name": "apikey",
+              "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljYW51d2RpdnRmZHNteHl0a2J2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDI0NjY3MSwiZXhwIjoyMDY5ODIyNjcxfQ.tA5Lx5_NN2Obm1InSFoIB3nzpvJLXUbXVOtl_bPwelI"
+            },
+            {
               "name": "Authorization",
-              "value": "Bearer key_25414031a5a885a13587eafd6e5e"
+              "value": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImljYW51d2RpdnRmZHNteHl0a2J2Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1NDI0NjY3MSwiZXhwIjoyMDY5ODIyNjcxfQ.tA5Lx5_NN2Obm1InSFoIB3nzpvJLXUbXVOtl_bPwelI"
             },
             {
               "name": "Content-Type",
@@ -1183,82 +1228,395 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ $json }}",
+        "jsonBody": "={\n  \"input_call_id\": \"{{ $json.retell_call_id }}\"\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "typeVersion": 4.3,
       "position": [
-        1408,
-        -512
+        -288,
+        1264
       ],
-      "id": "bd471311-3486-452f-988a-4375385b1263",
-      "name": "Retell Call Request",
+      "id": "44ed5306-9a19-49f3-bde7-1a866e11113d",
+      "name": "RPC_Increment_Attempt"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "7dd6c2c2-e240-4868-b692-60cdcd775253",
+              "leftValue": "={{ $json.email_sent }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        1648
+      ],
+      "id": "79cd49d9-998b-4b8d-b5ab-b53451d71238",
+      "name": "If5"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        592,
+        1712
+      ],
+      "id": "39339a14-b23c-4da8-8131-17edd8444aff",
+      "name": "No Operation, do nothing3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9e0cb4ac-c8df-4aeb-a48f-9dce72eb7f39",
+              "leftValue": "={{ $json.retry_allowed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -496,
+        1392
+      ],
+      "id": "d23a93c1-036c-42bf-823d-7d1fa83a7b47",
+      "name": "If6"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -272,
+        1536
+      ],
+      "id": "5d1f2d02-c3c9-47b5-aef2-3a69efd8bf7b",
+      "name": "No Operation, do nothing4"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "call_logs",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "retell_call_id",
+              "condition": "eq",
+              "keyValue": "={{$json.retell_call_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -688,
+        1552
+      ],
+      "id": "33e03828-a60d-4b20-a2c5-5863d97f2100",
+      "name": "Get call_id",
+      "alwaysOutputData": true,
       "credentials": {
-        "httpBearerAuth": {
-          "id": "QNXUgFUuY2ezu5Ls",
-          "name": "Bearer Auth account"
+        "supabaseApi": {
+          "id": "ZK0s8PYrJsYQVn5I",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -2928,
+        2000
+      ],
+      "id": "7845e9f5-303a-40a0-9d9e-d43e5a477d4c",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "68ecd108-3654-465a-8a57-06b91aa26017",
+              "leftValue": "={{ $json.event }}",
+              "rightValue": "call_ended",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3168,
+        1792
+      ],
+      "id": "3f040704-69b7-4fe2-85e1-507190f8e62c",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dc479e8e-a42f-49dd-a5b8-f26913d24bb7",
+              "leftValue": "={{ ['dial_no_answer','dial_busy','dial_failed','voicemail_reached'].includes($json.disconnection_reason) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -2496,
+        1776
+      ],
+      "id": "31be8e03-018f-44c0-97fe-c1764c6d34d9",
+      "name": "Validate_Call_Outcome"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * Retell Call Webhook – FINAL (Human-aware, Retry-safe)\n */\n\n// ==========================\n// 1️⃣ Normalize payload\n// ==========================\nconst root = $json || {};\nconst call = root.call || {};\n\n// ==========================\n// 2️⃣ Core fields\n// ==========================\nconst retellCallId = call.call_id ?? null;\nconst agentId = call.agent_id ?? null;\nconst phoneNumber = call.to_number ?? null;\n\nconst startTs = call.start_timestamp ?? null;\nconst endTs = call.end_timestamp ?? null;\n\nconst transcript =\n  typeof call.transcript === 'string' && call.transcript.trim() !== ''\n    ? call.transcript.trim()\n    : null;\n\nconst disconnectionReason = call.disconnection_reason ?? null;\n\n// attempts (default 0)\nconst attempts = Number(call.attempts ?? $json.attempts ?? 0);\n\n// ==========================\n// 3️⃣ Duration\n// ==========================\nconst durationMs =\n  typeof startTs === 'number' && typeof endTs === 'number'\n    ? endTs - startTs\n    : null;\n\n// ==========================\n// 4️⃣ Voicemail detection (AUTHORITATIVE)\n// ==========================\nconst tLower = transcript ? transcript.toLowerCase() : '';\n\nconst isVoicemail =\n  disconnectionReason === 'voicemail_reached' ||\n  tLower.includes('voicemail') ||\n  tLower.includes('voice mail') ||\n  tLower.includes('leave a message') ||\n  tLower.includes('please record your message') ||\n  tLower.includes('beep');\n\n// ==========================\n// 5️⃣ Call outcome (HUMAN FIRST)\n// ==========================\nlet outcome = 'Unknown';\n\n// ---- Voicemail / no human ----\nif (isVoicemail) {\n  outcome = 'Voicemail';\n}\n\n// ---- Not picked / unreachable ----\nelse if (\n  disconnectionReason === 'dial_busy' ||\n  disconnectionReason === 'dial_no_answer' ||\n  disconnectionReason === 'not_connected' ||\n  disconnectionReason === 'dial_failed'\n) {\n  outcome = 'Busy/No Answer';\n}\n\n// ---- Human rejection (STRONG STOP SIGNAL) ----\nelse if (\n  tLower.includes('not interested') ||\n  tLower.includes('no thanks') ||\n  tLower.includes('stop calling') ||\n  tLower.includes('not the right time') ||\n  tLower.includes('dont call') ||\n  tLower.includes('do not call')\n) {\n  outcome = 'Rejected Offer';\n}\n\n// ---- Booked appointment ----\nelse if (\n  tLower.includes('book') ||\n  tLower.includes('schedule') ||\n  tLower.includes('calendar') ||\n  tLower.includes('appointment')\n) {\n  outcome = 'Booked Appointment';\n}\n\n// ---- Interested but not booked ----\nelse if (\n  tLower.includes('interested') ||\n  tLower.includes('tell me more') ||\n  tLower.includes('send details') ||\n  tLower.includes('email me')\n) {\n  outcome = 'Interested';\n}\n\n// ==========================\n// 6️⃣ Retry + Next-step logic\n// ==========================\nconst humanAnswered =\n  outcome === 'Interested' ||\n  outcome === 'Booked Appointment' ||\n  outcome === 'Rejected Offer';\n\nlet retry_allowed = null;\nlet nextStep = null;\n\nif (outcome === 'Booked Appointment') {\n  nextStep = 'Booked Appointment';\n  retry_allowed = false;\n}\nelse if (outcome === 'Interested') {\n  nextStep = 'Send Follow-up';\n  retry_allowed = false;\n}\nelse if (outcome === 'Rejected Offer') {\n  nextStep = 'Stop Outreach';\n  retry_allowed = false;\n}\n\n// ==========================\n// 7️⃣ Final output\n// ==========================\nreturn [\n  {\n    prospect_id: null,\n\n    agent_id: agentId,\n    retell_call_id: retellCallId,\n    phone_number: phoneNumber,\n    to_email: call.to_email,\n\n    start_timestamp: startTs,\n    end_timestamp: endTs,\n    duration_ms: durationMs,\n\n    disconnection_reason: disconnectionReason,\n\n    is_voicemail: isVoicemail,\n    outcome,\n    tone: outcome,\n\n    transcript,\n\n    attempts,\n    attempt_number: attempts + 1,\n\n    retry_allowed,\n    next_step: nextStep,\n\n    flagged_for_review: outcome === 'Unknown',\n\n    created_at: new Date().toISOString(),\n\n    parser_meta: {\n      source: 'retell',\n      humanAnswered,\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2816,
+        1776
+      ],
+      "id": "9f470992-5e3b-4d8a-87bf-88b1b6c20d29",
+      "name": "Parse & Normalize Call Data"
+    },
+    {
+      "parameters": {
+        "useCustomSchema": true,
+        "operation": "getAll",
+        "tableId": "outreach_data",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "PhoneNumber",
+              "condition": "eq",
+              "keyValue": "={{ $json.phone_number}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -1936,
+        1504
+      ],
+      "id": "f81ab899-bc17-4b7e-ac6f-14c4919b894a",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "ZK0s8PYrJsYQVn5I",
+          "name": "Supabase account"
         }
       }
     },
     {
       "parameters": {
-        "httpMethod": "POST",
-        "path": "retell-call-analysis",
-        "responseMode": "lastNode",
-        "responseData": "allEntries",
+        "jsCode": "// Retell webhook sometimes wraps body in an array\nconst raw = $json.body;\n\nlet eventBody;\n\nif (Array.isArray(raw)) {\n  eventBody = raw[0]?.body ?? raw[0];\n} else {\n  eventBody = raw;\n}\n\nreturn [{\n  ...eventBody\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3408,
+        1792
+      ],
+      "id": "0f13c2c2-1caa-4569-b052-82fe07f4eaeb",
+      "name": "Normalize Webhook Payload"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  {\n    json: {\n      // 🔑 Unique key\n      retell_call_id: $node[\"Parse & Normalize Call Data\"].json.retell_call_id,\n\n      // Core call data\n      phone_number: $node[\"Parse & Normalize Call Data\"].json.phone_number,\n      start_timestamp: $node[\"Parse & Normalize Call Data\"].json.start_timestamp,\n      end_timestamp: $node[\"Parse & Normalize Call Data\"].json.end_timestamp,\n      disconnection_reason: $node[\"Parse & Normalize Call Data\"].json.disconnection_reason,\n\n      // Outcome\n      outcome: $node[\"Parse & Normalize Call Data\"].json.outcome,\n      next_step: $node[\"Parse & Normalize Call Data\"].json.next_step ?? null,\n\n      // Text\n      summary: $node[\"Parse & Normalize Call Data\"].json.summary ?? null,\n      transcript: $node[\"Parse & Normalize Call Data\"].json.transcript ?? null,\n\n      // Email / appointment\n      email_sent: $node[\"Parse & Normalize Call Data\"].json.email_sent ?? false,\n      email_subject: $node[\"Parse & Normalize Call Data\"].json.email_subject ?? null,\n      email_sent_at: $node[\"Parse & Normalize Call Data\"].json.email_sent_at ?? null,\n      appointment_time: $node[\"Parse & Normalize Call Data\"].json.appointment_time ?? null,\n\n      // Flags\n      flagged_for_review: $node[\"Parse & Normalize Call Data\"].json.flagged_for_review ?? false,\n      retry_allowed: null,\n      attempt_number: $node[\"Parse & Normalize Call Data\"].json.attempt_number ?? null,\n\n      // Metadata\n      from_email: $node[\"Parse & Normalize Call Data\"].json.from_email ?? null,\n      to_email: $node[\"Parse & Normalize Call Data\"].json.to_email ?? null,\n      event: $node[\"Parse & Normalize Call Data\"].json.event ?? null,\n\n      // Audit\n      created_at: new Date().toISOString(),\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1680,
+        1504
+      ],
+      "id": "480d84e4-7c1e-430b-aaf0-591a4a952769",
+      "name": "Prepare_Save_Call_Log"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst processedItems = [];\n\nfor (const item of items) {\n  const prospect = item.json;\n  const linkedInURL = prospect.linkedInURL || '';\n  \n  if (!linkedInURL || linkedInURL.trim() === '') {\n    processedItems.push({ \n      json: {\n        ...prospect,\n        linkedin_enrichment: { success: false, error: 'No LinkedIn URL provided' },\n        linkedin_scraped_at: new Date().toISOString(),\n        linkedin_profile_headline: prospect.jobTitle || '',\n        linkedin_current_position: prospect.jobTitle ? `${prospect.jobTitle} at ${prospect.companyName}` : '',\n        linkedin_location: prospect.city && prospect.state ? `${prospect.city}, ${prospect.state}` : '',\n        linkedin_connection_count: '',\n        linkedin_recent_activity: ''\n      }\n    });\n    continue;\n  }\n  \n  // Generate realistic fallback data based on prospect info\n  const firstName = prospect.firstName || 'Unknown';\n  const jobTitle = prospect.jobTitle || 'Professional';\n  const companyName = prospect.companyName || 'Company';\n  const city = prospect.city || 'City';\n  const state = prospect.state || 'State';\n  \n  // Generate realistic headline variations\n  const headlines = [\n    `${jobTitle} at ${companyName} | Real Estate Technology Enthusiast`,\n    `${jobTitle} | Helping Real Estate Professionals Scale with AI`,\n    `${jobTitle} @ ${companyName} | PropTech Innovator`,\n    `Experienced ${jobTitle} | ${companyName} | Growth & Strategy`,\n    `${jobTitle} specializing in Real Estate Tech Solutions`\n  ];\n  \n  // Generate realistic summary\n  const summary = `Accomplished ${jobTitle} with extensive experience in real estate technology and business development. Currently driving growth initiatives at ${companyName} in ${city}, ${state}. Passionate about leveraging AI and automation to transform how real estate professionals operate. Proven track record in lead generation, client acquisition, and building scalable systems.`;\n  \n  // Generate realistic skills\n  const roleSkills = {\n    'VP of Sales': ['Sales Strategy', 'Business Development', 'Lead Generation', 'CRM Management', 'Team Leadership', 'Negotiation', 'Account Management'],\n    'CEO': ['Strategic Planning', 'Leadership', 'Business Strategy', 'P&L Management', 'Fundraising', 'Product Vision'],\n    'CTO': ['Software Architecture', 'Team Management', 'Technical Strategy', 'Cloud Infrastructure', 'API Design', 'DevOps'],\n    'Marketing': ['Digital Marketing', 'Content Strategy', 'SEO/SEM', 'Social Media', 'Campaign Management', 'Analytics'],\n    'default': ['Communication', 'Project Management', 'Problem Solving', 'Leadership', 'Strategy', 'Analysis']\n  };\n  \n  const skills = roleSkills[jobTitle] || roleSkills['default'];\n  \n  // Generate experience\n  const experience = [\n    {\n      title: jobTitle,\n      company: companyName,\n      duration: '2+ years',\n      description: `Leading strategic initiatives and growth`\n    },\n    {\n      title: `Senior ${jobTitle.replace('VP of ', '').replace('Director of ', '')}`,\n      company: 'Previous Company',\n      duration: '3 years',\n      description: 'Built and scaled operations'\n    }\n  ];\n  \n  // Generate education\n  const education = [\n    {\n      school: 'University',\n      degree: 'Bachelor of Business Administration',\n      field: 'Business',\n      year: '2015'\n    }\n  ];\n  \n  const enrichedProspect = {\n    ...prospect,\n    \n    linkedin_enrichment: {\n      success: true,\n      source: 'fallback_data',\n      profile_url: linkedInURL,\n      extracted_at: new Date().toISOString(),\n      note: 'Using fallback data for testing'\n    },\n    \n    linkedin_scraped_at: new Date().toISOString(),\n    \n    linkedin_profile_headline: headlines[Math.floor(Math.random() * headlines.length)],\n    \n    linkedin_current_position: `${jobTitle} at ${companyName}`,\n    \n    linkedin_location: city && state ? `${city}, ${state}` : 'United States',\n    \n    linkedin_connection_count: Math.floor(Math.random() * 400 + 500) + '+',\n    \n    linkedin_recent_activity: `Recently shared insights about ${Math.random() > 0.5 ? 'real estate technology trends' : 'AI automation in PropTech'}. Active in industry discussions.`,\n    \n    linkedin_full_name: prospect.fullName,\n    \n    linkedin_skills: skills,\n    \n    linkedin_experience: experience,\n    \n    linkedin_education: education,\n    \n    linkedin_summary: summary,\n    \n    linkedin_company: companyName,\n    \n    linkedin_industry: 'Real Estate Technology'\n  };\n  \n  processedItems.push({ json: enrichedProspect });\n  console.log(`✅ Generated fallback data for: ${prospect.fullName}`);\n}\n\nconsole.log(`✅ Processed ${processedItems.length} profiles with fallback data`);\nreturn processedItems;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -256,
+        -64
+      ],
+      "id": "0c2c9318-bd9e-4e04-850f-5d007244d235",
+      "name": "LinkedinScraper"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        128
+      ],
+      "id": "3e6744be-1194-4bac-bb1f-b47f241697b2",
+      "name": "No Operation, do nothing5"
+    },
+    {
+      "parameters": {
+        "fromEmail": "tonystark57ts@gmail.com",
+        "toEmail": "={{ $json.to_email }}",
+        "subject": "={{ $json.email_subject }}",
+        "html": "=<p>Hi {{ $json.first_name || \"there\" }},</p>\n\n<p>Thanks for taking the time to speak with us.</p>\n\n<p>Your appointment has been confirmed:</p>\n\n<ul>\n  <li><strong>Date & Time:</strong> {{ $node[\"Transform_Call_Data\"].json.appointment_time }}</li>\n</ul>\n\n<p>We look forward to speaking with you.</p>\n\n<p>Best regards,<br/>Team</p>\n",
         "options": {}
       },
-      "type": "n8n-nodes-base.webhook",
+      "type": "n8n-nodes-base.emailSend",
       "typeVersion": 2.1,
       "position": [
-        -2688,
-        560
+        2096,
+        2112
       ],
-      "id": "cb8cf9b2-3b26-4fd3-a83a-e20fba1679b4",
-      "name": "Call Analysis Webhook",
-      "webhookId": "367e1639-1398-4fae-9a76-3dde23078495"
+      "id": "60b8a581-9e8d-4bce-8384-89384574a092",
+      "name": "Send email",
+      "webhookId": "270e0a4e-a184-4d54-85c5-e2e8139de3bb",
+      "credentials": {
+        "smtp": {
+          "id": "Jg5aEAzSV4cWcuRL",
+          "name": "SMTP account"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "// Code11 — Robust \"unsuccessful call\" detector for n8n\n\n// ---------- helpers ----------\nconst pick = (obj, paths, fallback = undefined) => {\n  for (const p of paths) {\n    try {\n      const v = p.split('.').reduce((o, k) => o?.[k], obj);\n      if (v !== undefined && v !== null) return v;\n    } catch {}\n  }\n  return fallback;\n};\n\nconst toLower = (x) => (typeof x === 'string' ? x.toLowerCase() : '');\n\n// ---------- pull common fields from many shapes ----------\nconst body = $json.body ?? $json ?? {};\nconst call  = pick(body, ['call','payload.call','data.call','event.call']) || body;\n\nconst transcript =\n  pick(body, [\n    'call.call_analysis.transcript',\n    'call.CallAnalysis.transcript',\n    'call.transcript',\n    'transcript',\n    'payload.transcript',\n    'data.transcript'\n  ], '') || '';\n\nconst normalizedTranscript = toLower(transcript);\n\n// disconnection / status from various places\nconst disconnectionReason =\n  toLower(\n    pick(call, ['disconnection_reason','ended_reason','hangup_cause','hangup_reason']) ||\n    pick(body, ['disconnection_reason','reason']) ||\n    ''\n  );\n\nconst status = toLower(\n  pick(call, ['status','call_status','state']) ||\n  pick(body, ['status','call_status','state']) ||\n  ''\n);\n\nconst inVoicemailFlag = !!(\n  pick(call, ['call_analysis.in_voicemail','in_voicemail']) ??\n  pick(body, ['in_voicemail'])\n);\n\nconst answeredBy = toLower(\n  pick(call, ['answered_by','machine_detection_result','amd_result']) || ''\n);\n\n// durations in sec\nlet durationSec =\n  Number(pick(call, ['duration_sec','call_duration','total_duration'])) ||\n  (Number(pick(call, ['duration_ms'])) ? Number(pick(call, ['duration_ms']))/1000 : 0);\n\n// fallback: compute from timestamps if needed\nif (!durationSec) {\n  const start = pick(call, ['start_timestamp','started_at']);\n  const end   = pick(call, ['end_timestamp','ended_at']);\n  if (start && end) {\n    const s = new Date(start).getTime();\n    const e = new Date(end).getTime();\n    if (!Number.isNaN(s) && !Number.isNaN(e) && e > s) {\n      durationSec = Math.round((e - s) / 1000);\n    }\n  }\n}\n\n// outcome hints (if upstream analyzer already set something)\nconst outcomePayload =\n  pick(call, ['call_analysis.custom_analysis_data.Outcome']) ||\n  pick(call, ['CallAnalysis.custom_analysis_data.Outcome']) ||\n  pick(body, ['Outcome','outcome']) ||\n  '';\n\nconst outcomeLower = toLower(outcomePayload);\n\n// ---------- classify granular flags ----------\nconst reasonStr = `${disconnectionReason} ${status} ${answeredBy} ${normalizedTranscript}`;\n\n// Busy / No answer / Failed / Rejected / Invalid\nconst isBusy =\n  /\\bbusy\\b|dial_busy|user_busy/.test(reasonStr);\n\nconst isNoAnswer =\n  /no[\\s\\-]?answer|dial_no_answer|timeout|ring[-\\s]?timeout|not\\s*answered/.test(reasonStr);\n\nconst isFailedNetwork =\n  /network|system|signaling|unavailable|gateway|failed|congestion|error|invalid[_\\s-]?number|not\\s*reachable/.test(reasonStr);\n\nconst isRejected =\n  /rejected|declined|blocked|dnd|do[-\\s]?not[-\\s]?disturb/.test(reasonStr);\n\nconst amdMachine =\n  /machine|voicemail|answering\\s*machine/.test(answeredBy);\n\n// Voicemail detection (explicit flag + transcript cues)\nconst vmCues = [\n  'voicemail','voice mail','leave a message','after the tone','beep',\n  'mailbox is full','cannot take your call','not available to take your call'\n];\nconst isVoicemail =\n  inVoicemailFlag || vmCues.some(c => normalizedTranscript.includes(c));\n\n// Human speech heuristic (do we see real user utterances?)\nconst hasUserPrefix = /\\buser:\\s*\\S+/i.test(transcript);\nconst humanWordCues = /(\\bhello\\b|\\bhi\\b|\\byes\\b|\\bspeaking\\b|\\bthis is\\b|\\bi want\\b|\\bplease\\b|\\bokay\\b)/i;\nconst hasHumanSpeech = hasUserPrefix || humanWordCues.test(transcript);\n\n// Very short calls with no human speech\nconst shortCall = (durationSec > 0 && durationSec < 8 && !hasHumanSpeech);\n\n// Outcome-based positives\nconst outcomePositive =\n  /\\bbook|appointment|schedule|meeting|interested|qualified|connected|human\\b/.test(outcomeLower);\n\n// If payload says machine, treat as machine even if transcript has words like \"leave a message\"\nconst isMachine = amdMachine || (isVoicemail && !hasHumanSpeech);\n\n// ---------- final decision ----------\n// A call is \"unsuccessful\" when:\n// - voicemail OR machine detection OR busy OR no answer OR failed network OR rejected\n// - OR it's a very short call with no human speech\n// BUT if analyzer already declared a positive outcome, override to successful.\nlet isUnsuccessful =\n  isVoicemail ||\n  isMachine ||\n  isBusy ||\n  isNoAnswer ||\n  isFailedNetwork ||\n  isRejected ||\n  shortCall;\n\nif (outcomePositive) {\n  isUnsuccessful = false;\n}\n\n// ---------- optional debug (safe extra fields) ----------\nconst debug = {\n  status,\n  disconnectionReason,\n  answeredBy,\n  durationSec,\n  flags: {\n    isVoicemail,\n    isMachine,\n    isBusy,\n    isNoAnswer,\n    isFailedNetwork,\n    isRejected,\n    shortCall,\n    hasHumanSpeech,\n    outcomePositive\n  },\n  outcomePayload\n};\n\n// Return original payload plus the decision\nreturn {\n  ...$json,\n  isUnsuccessful,\n  // comment out 'debug' if you don't want extra fields going downstream\n  debug\n};\n"
+        "jsCode": "/**\n * FINAL – Appointment Extraction + System Fields\n * EMAIL SOURCE: outreach_data ONLY\n */\n\n// ==========================\n// 1️⃣ EMAIL (SOURCE OF TRUTH)\n// ==========================\nconst to_email = $json.to_email ?? null;\n\n// ==========================\n// 2️⃣ INPUT\n// ==========================\nconst transcriptRaw = $json.transcript || \"\";\nconst transcript = transcriptRaw.toLowerCase();\n\n// ==========================\n// 3️⃣ CHECK BOOKED\n// ==========================\nconst isBooked =\n  transcript.includes(\"book appointment\") ||\n  transcript.includes(\"book an appointment\") ||\n  transcript.includes(\"booked appointment\") ||\n  transcript.includes(\"schedule\") ||\n  transcript.includes(\"appointment\");\n\nlet appointment_time = null;\nlet formatted_appointment_time = null;\n\n// ==========================\n// 4️⃣ WORD → NUMBER MAP\n// ==========================\nconst numberWords = {\n  one: 1, two: 2, three: 3, four: 4, five: 5,\n  six: 6, seven: 7, eight: 8, nine: 9,\n  ten: 10, eleven: 11, twelve: 12,\n  fifteen: 15, thirty: 30, forty: 40, fortyfive: 45\n};\n\n// ==========================\n// 5️⃣ EXTRACT TIME\n// ==========================\nfunction extractTime(text) {\n  let m = text.match(/(\\d{1,2})[:.](\\d{2})\\s*(am|pm)/);\n  if (m) return { hour:+m[1], minute:+m[2], ampm:m[3] };\n\n  m = text.match(\n    /(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\s+(fifteen|thirty|forty|fortyfive)?\\s*(am|pm)/\n  );\n  if (m) {\n    return {\n      hour: numberWords[m[1]],\n      minute: numberWords[m[2]] || 0,\n      ampm: m[3]\n    };\n  }\n  return null;\n}\n\n// ==========================\n// 6️⃣ BUILD DATE\n// ==========================\nif (isBooked) {\n  const time = extractTime(transcript);\n  if (time) {\n    let { hour, minute, ampm } = time;\n\n    if (ampm === \"pm\" && hour < 12) hour += 12;\n    if (ampm === \"am\" && hour === 12) hour = 0;\n\n    const d = new Date();\n    if (transcript.includes(\"tomorrow\")) d.setDate(d.getDate() + 1);\n\n    d.setHours(hour, minute, 0, 0);\n\n    appointment_time = d.toISOString();\n\n    const yyyy = d.getFullYear();\n    const mm = String(d.getMonth() + 1).padStart(2, \"0\");\n    const dd = String(d.getDate()).padStart(2, \"0\");\n\n    let hh = d.getHours();\n    const min = String(d.getMinutes()).padStart(2, \"0\");\n    const ap = hh >= 12 ? \"PM\" : \"AM\";\n    hh = hh % 12 || 12;\n\n    formatted_appointment_time =\n      `${yyyy}-${mm}-${dd} ${String(hh).padStart(2,\"0\")}:${min} ${ap}`;\n  }\n}\n\n// ==========================\n// 7️⃣ SYSTEM FIELDS\n// ==========================\nconst email_subject = isBooked ? \"Your appointment is confirmed\" : null;\nconst from_email = isBooked ? \"tonystark57ts@gmail.com\" : null;\n\nconst notes =\n  isBooked\n    ? \"User booked appointment on call\"\n    : $json.outcome === \"Rejected Offer\"\n    ? \"User rejected offer\"\n    : null;\n\n// ==========================\n// 8️⃣ FINAL OUTPUT\n// ==========================\nreturn [\n  {\n    json: {\n      ...$json,\n      appointment_time,\n      formatted_appointment_time,\n      to_email,\n      email_subject,\n      from_email,\n      email_sent_at: null,\n      notes,\n      exhausted_at: null\n    }\n  }\n];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2208,
-        544
+        -1536,
+        2144
       ],
-      "id": "cb6efe8b-3671-48ad-9436-1364dc590b4c",
-      "name": "Detect Unsuccessful Call"
+      "id": "18c0d6d8-b14b-4656-9201-6d525cc844e1",
+      "name": "Code in JavaScript1"
     },
     {
       "parameters": {
-        "jsCode": "// ---------- Helpers ----------\nconst get = (obj, paths) => {\n  for (const p of paths) {\n    try {\n      const v = p.split('.').reduce((o,k)=>o?.[k], obj);\n      if (v !== undefined && v !== null) return v;\n    } catch {}\n  }\n  return undefined;\n};\n\nconst now = new Date();\n\n// ---------- 1) Pull raw fields from many possible shapes ----------\nconst body = $json.body ?? $json ?? {};\nconst callObj = get(body, [\n  'call', 'payload.call', 'data.call', 'event.call'\n]) || body;\n\nconst transcriptRaw =\n  get(body, [\n    'call.call_analysis.transcript',\n    'call.CallAnalysis.transcript',\n    'call.transcript',\n    'transcript',\n    'payload.transcript',\n    'data.transcript'\n  ]) || \"\";\n\nconst outcomeFromPayload =\n  get(body, [\n    'call.call_analysis.custom_analysis_data.Outcome',\n    'call.CallAnalysis.custom_analysis_data.Outcome',\n    'call.custom_analysis_data.Outcome',\n    'Outcome',\n  ]);\n\nconst inVoicemailFlag =\n  !!get(body, [\n    'call.call_analysis.in_voicemail',\n    'call.CallAnalysis.in_voicemail',\n    'in_voicemail'\n  ]);\n\nconst bookingTimeRaw =\n  get($json, ['booking_response.time', 'booking.time']) ||\n  get(body, ['booking_response.time', 'booking.time']);\n\nconst agentId =\n  get(body, ['call.agent_id', 'agent_id']) || null;\n\nconst retellCallId =\n  get(body, ['call.call_id','call.id','retell_call_id']) || null;\n\nconst startTs =\n  get(body, ['call.start_timestamp','start_timestamp','call.started_at']) || null;\n\nconst endTs =\n  get(body, ['call.end_timestamp','end_timestamp','call.ended_at']) || null;\n\nconst disconnectionReason =\n  get(body, ['call.disconnection_reason','disconnection_reason','reason']) || null;\n\nconst phoneNumber =\n  get(body, ['call.to_number','to_number','phone','phone_number']) || null;\n\nconst fromEmailIncoming =\n  get($json, ['from_email','email.from','sender']) ||\n  get(body, ['from_email','email.from','sender']) || null;\n\nconst prospectId =\n  get($json, ['prospect_id','prospect.id']) ||\n  get(body, ['prospect_id','prospect.id']) || null;\n\n// ---------- 2) Normalize transcript ----------\nconst transcript = (transcriptRaw || \"\").toString();\nconst tLower = transcript.toLowerCase();\n\n// ---------- 3) Robust voicemail detection ----------\nlet isVoicemail = !!inVoicemailFlag;\nif (!isVoicemail) {\n  const vmHints = [\n    'voicemail','voice mail','leave a message','beep','after the tone',\n    'not available right now','leave your message','mailbox is full'\n  ];\n  isVoicemail = vmHints.some(h => tLower.includes(h));\n}\n\n// ---------- 4) Robust email extraction ----------\nfunction spelledEmailToNormal(text) {\n  let s = ` ${text.toLowerCase()} `;\n\n  // Convert common words -> symbols\n  s = s.replace(/\\bat the rate of\\b|\\bat the rate\\b|\\bat\\b/g, ' @ ');\n  s = s.replace(/\\b(dot|period)\\b/g, '.');\n  s = s.replace(/\\b(underscore)\\b/g, '_');\n  s = s.replace(/\\b(hyphen|dash)\\b/g, '-');\n  s = s.replace(/\\b(plus|plus sign)\\b/g, '+');\n\n  // Handle compound numbers like \"seventy eight\" -> 78\n  const numWords = {\n    zero:'0', oh:'0', one:'1', two:'2', three:'3', four:'4', five:'5',\n    six:'6', seven:'7', eight:'8', nine:'9', ten:'10',\n    eleven:'11', twelve:'12', thirteen:'13', fourteen:'14',\n    fifteen:'15', sixteen:'16', seventeen:'17', eighteen:'18',\n    nineteen:'19', twenty:'20', thirty:'30', forty:'40',\n    fifty:'50', sixty:'60', seventy:'70', eighty:'80', ninety:'90'\n  };\n\n  s = s.replace(/\\b(seventy|eighty|ninety|twenty|thirty|forty|fifty|sixty)\\s+(one|two|three|four|five|six|seven|eight|nine)\\b/g,\n    (m,a,b)=> String(parseInt(numWords[a]) + parseInt(numWords[b])));\n\n  s = s.replace(/\\b(zero|oh|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen)\\b/g,\n    (m)=> numWords[m]);\n\n  // Collapse spaces around @ and .\n  s = s.replace(/\\s*@\\s*/g, '@');\n  s = s.replace(/\\s*\\.\\s*/g, '.');\n\n  // Remove stray spaces between characters inside email candidates\n  s = s.replace(/([a-z0-9])\\s+(?=[a-z0-9@._\\-+])/g, '$1');\n\n  return s.trim();\n}\n\nlet userEmail = null;\n// 1) direct email in transcript\nlet m = transcript.match(/[a-zA-Z0-9._%+\\-]+@[a-zA-Z0-9.\\-]+\\.[a-zA-Z]{2,}/);\nif (m) {\n  userEmail = m[0];\n} else {\n  // 2) spelled-out email\n  const normalized = spelledEmailToNormal(transcript);\n  let m2 = normalized.match(/[a-z0-9._%+\\-]+@[a-z0-9.\\-]+\\.[a-z]{2,}/);\n  if (m2) userEmail = m2[0];\n}\n\n// ---------- 5) Robust outcome classification ----------\nconst outcomePatterns = {\n  \"Rejected Offer\": [\n    'not interested','no thanks','don\\'t need','reject','stop calling','go away','already have',\n    'no longer','not now','not looking','remove me','unsubscribe','do not call'\n  ],\n  \"Booked Appointment\": [\n    'book','schedule','set up','arrange','appointment','reserve','meeting','slot','confirmed',\n    'let’s meet','lets meet','see you','calendar','cal dot com','cal.com','availability'\n  ],\n  \"Interested\": [\n    'interested','tell me more','sounds good','send info','send me details','email me',\n    'want to know','curious','open to discuss','looking forward','follow up'\n  ],\n  \"Voicemail\": [\n    'voicemail','voice mail','beep','leave a message','after the tone','mailbox'\n  ],\n  \"Busy/No Answer\": [\n    'busy','call me later','not a good time','can’t talk','cannot talk','driving','meeting now',\n    'no answer','missed call','try later'\n  ]\n};\n\nlet outcome = outcomeFromPayload || \"Unknown\";\nif (outcome === \"Unknown\" || !outcome) {\n  for (const [label, pats] of Object.entries(outcomePatterns)) {\n    if (pats.some(p => tLower.includes(p))) {\n      outcome = label;\n      break;\n    }\n  }\n  if (outcome === \"Unknown\" && isVoicemail) outcome = \"Voicemail\";\n}\n\n// ---------- 6) Flexible date/time parsing ----------\nconst months = {\n  january:0,february:1,march:2,april:3,may:4,june:5,\n  july:6,august:7,september:8,october:9,november:10,december:11\n};\nconst ordinals = {\n  \"first\":1,\"second\":2,\"third\":3,\"fourth\":4,\"fifth\":5,\"sixth\":6,\"seventh\":7,\"eighth\":8,\"ninth\":9,\"tenth\":10,\n  \"eleventh\":11,\"twelfth\":12,\"thirteenth\":13,\"fourteenth\":14,\"fifteenth\":15,\"sixteenth\":16,\"seventeenth\":17,\n  \"eighteenth\":18,\"nineteenth\":19,\"twentieth\":20,\"twenty first\":21,\"twenty second\":22,\"twenty third\":23,\n  \"twenty fourth\":24,\"twenty fifth\":25,\"twenty sixth\":26,\"twenty seventh\":27,\"twenty eighth\":28,\"twenty ninth\":29,\n  \"thirtieth\":30,\"thirty first\":31\n};\nconst weekdays = {sunday:0,monday:1,tuesday:2,wednesday:3,thursday:4,friday:5,saturday:6};\nconst numberWords = {one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12};\n\nfunction parseTimePhrase(text) {\n  if (!text) return { hour: 9, minute: 0, confidence: 'default' };\n  let s = text.toLowerCase().trim();\n\n  if (/\\bnoon\\b/.test(s)) return { hour: 12, minute: 0, confidence: 'exact' };\n  if (/\\bmidnight\\b/.test(s)) return { hour: 0, minute: 0, confidence: 'exact' };\n\n  let m = s.match(/\\b([01]?\\d|2[0-3])[:.]?([0-5]\\d)\\b/);\n  if (m) return { hour: parseInt(m[1],10), minute: parseInt(m[2],10), confidence: 'exact' };\n\n  m = s.match(/\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)?\\b/);\n  if (m) {\n    let hour = parseInt(m[1],10);\n    let minute = m[2] ? parseInt(m[2],10) : 0;\n    const ampm = m[3];\n    if (ampm === 'pm' && hour < 12) hour += 12;\n    if (ampm === 'am' && hour === 12) hour = 0;\n    if (!ampm) {\n      if (/\\bmorning\\b/.test(s) && hour === 12) hour = 0;\n      if (/\\b(afternoon|evening|night|tonight)\\b/.test(s) && hour < 12) hour += 12;\n    }\n    return { hour, minute, confidence: ampm ? 'exact' : 'partial' };\n  }\n\n  return { hour: 9, minute: 0, confidence: 'default' };\n}\n\nfunction toISO(y, m, d, hh, mm) {\n  const dt = new Date(y, m, d, hh, mm, 0, 0);\n  return isNaN(dt) ? null : dt.toISOString();\n}\n\nfunction nextWeekday(start, targetDow, inclusive) {\n  const d = new Date(start);\n  let diff = (targetDow - d.getDay() + 7) % 7;\n  if (!inclusive || diff === 0) diff = (diff === 0) ? 7 : diff;\n  d.setDate(d.getDate() + diff);\n  return d;\n}\n\n// UPDATED: capture last valid appointment\nfunction parseAppointmentISO() {\n  let last = null;\n\n  function set(matchISO) {\n    if (matchISO) last = matchISO;\n  }\n\n  // Try each pattern but do not return early, keep last\n  // (for brevity I’m showing only one example, but repeat for each block in your code)\n\n  // A) Month first\n  let m = tLower.matchAll(/\\b(january|february|march|april|may|june|july|august|september|october|november|december)\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s*(?:at|@)\\s*([a-z0-9 :.\\']+(?:am|pm)?))?/g);\n  for (const mm of m) {\n    const monthIdx = months[mm[1]];\n    const day = parseInt(mm[2],10);\n    const timeStr = mm[3];\n    const { hour, minute } = parseTimePhrase(timeStr || '');\n    set({ iso: toISO(now.getFullYear(), monthIdx, day, hour, minute), confidence: 'absolute-month-first' });\n  }\n\n  // TODO: repeat same approach for all other date patterns...\n\n  return last || { iso:null, confidence:'none' };\n}\n\nconst parsed = parseAppointmentISO();\nlet appointmentTimeISO = parsed.iso;\n\nif ((!outcome || outcome === 'Unknown') && appointmentTimeISO) {\n  outcome = 'Booked Appointment';\n}\n\n// ---------- 7) Auto email fields when booked ----------\nlet emailSent = false;\nlet emailSubject = null;\nlet emailSentAt = null;\nlet emailAccount = null;\n\nif (outcome === \"Booked Appointment\" && appointmentTimeISO) {\n  emailSent = true;\n  const dt = new Date(appointmentTimeISO);\n  emailSubject = `Appointment Confirmation – ${dt.toDateString()} ${dt.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})}`;\n  emailSentAt = new Date().toISOString();\n  emailAccount = fromEmailIncoming || \"n8n-default\";\n}\n\n// ---------- 8) Summary (fallback) ----------\nconst callSummary =\n  get(body, [\n    'call.call_analysis.call_summary',\n    'call.CallAnalysis.call_summary',\n    'call.summary',\n    'summary'\n  ]) || null;\n\n// ---------- 9) Build final item ----------\nconst item = {\n  id: prospectId ?? null,\n  prospect_id: prospectId ?? null,\n\n  agent_id: agentId,\n  retell_call_id: retellCallId,\n\n  phone_number: phoneNumber ?? null,\n  start_timestamp: startTs,\n  end_timestamp: endTs,\n  disconnection_reason: disconnectionReason,\n\n  is_voicemail: !!isVoicemail,\n  tone: outcome,\n  outcome: outcome,\n  summary: callSummary,\n  transcript: transcript,\n\n  created_at: new Date().toISOString(),\n\n  email_sent: emailSent,\n  email_subject: emailSubject,\n  email_sent_at: emailSentAt,\n  email_account: emailAccount,\n\n  next_step:\n    outcome === 'Booked Appointment' ? 'Booked Appointment' :\n    outcome === 'Interested'         ? 'Send Follow-up Email' :\n    outcome === 'Rejected Offer'     ? 'Stop Outreach' :\n    outcome === 'Voicemail'          ? 'Retry Call' :\n    outcome === 'Busy/No Answer'     ? 'Retry Call' :\n    null,\n\n  appointment_time: appointmentTimeISO,\n\n  flagged_for_review: outcome === 'Unknown',\n  notes: null,\n\n  to_email: userEmail,\n  from_email: fromEmailIncoming,\n\n  call_analysis: get(body, ['call.call_analysis','call.CallAnalysis']) || null,\n\n  parser_meta: {\n    appointment_confidence: parsed.confidence,\n    voicemail_flag_from_payload: inVoicemailFlag,\n  }\n};\n\n// ---------- 10) Output as n8n item array ----------\nreturn [ item ];\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -1392,
-        560
-      ],
-      "id": "3d063442-d50d-4589-9a36-e9e5bf32a067",
-      "name": "Parse & Normalize Call Data"
-    },
-    {
-      "parameters": {
-        "mode": "combine",
-        "combineBy": "combineByPosition",
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1eaddc3b-ffc0-45c0-a275-e2206c0e8d20",
+              "leftValue": "={{ $json.outcome }}",
+              "rightValue": "Unknown",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
         "options": {}
       },
-      "type": "n8n-nodes-base.merge",
-      "typeVersion": 3.2,
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
       "position": [
-        -1696,
-        560
+        -2288,
+        2176
       ],
-      "id": "2d118ed0-0039-41cd-b212-4ed9466b855a",
-      "name": "Merge Call + Prospect"
+      "id": "903960d4-0112-44b4-a6b1-1d54d1f32c73",
+      "name": "IF – Outcome Is Final"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -2080,
+        2272
+      ],
+      "id": "4bf4df44-e185-4397-b360-737fc5b238ef",
+      "name": "No Operation, do nothing6"
     },
     {
       "parameters": {
@@ -1271,11 +1629,11 @@
             },
             {
               "fieldId": "start_timestamp",
-              "fieldValue": "={{ new Date($json.start_timestamp).toISOString() }}"
+              "fieldValue": "={{ new Date($node[\"Prepare_Save_Call_Log\"].json.start_timestamp).toISOString() }}"
             },
             {
               "fieldId": "end_timestamp",
-              "fieldValue": "={{ new Date($json.end_timestamp).toISOString() }}"
+              "fieldValue": "={{ new Date($node[\"Prepare_Save_Call_Log\"].json.end_timestamp).toISOString() }}"
             },
             {
               "fieldId": "disconnection_reason",
@@ -1335,18 +1693,163 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -640,
-        704
+        -1312,
+        1600
       ],
-      "id": "b6fd3991-55eb-4fee-9a92-43ef698c7571",
-      "name": "Save Call Log",
+      "id": "930563ec-c367-413a-bc6c-327892a676cc",
+      "name": "Save Call Log1",
       "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "call_logs",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "retell_call_id",
+              "condition": "eq",
+              "keyValue": "={{$json.retell_call_id}}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        112,
+        1024
+      ],
+      "id": "e04e9768-aa0f-4346-8744-1b75178c96c3",
+      "name": "Get call_id1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "ZK0s8PYrJsYQVn5I",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e50d6cb2-476c-4695-8724-b9db2cbe3aff",
+              "leftValue": "={{ $json.attempts <= 2 }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        384,
+        1040
+      ],
+      "id": "cd8bdddb-5f0b-4b7d-a27b-3fe55a8ab3b1",
+      "name": "If1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -128,
+        1024
+      ],
+      "id": "e38300cf-457e-493b-9eef-c8a52d815dc5",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "call-analysis",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3648,
+        1792
+      ],
+      "id": "b126a556-5f1b-4a8c-8cfb-9feae3e1ba2a",
+      "name": "Webhook",
+      "webhookId": "6f3f8d1c-8b77-49cd-8d0d-a5bef88302bc"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "outreach",
+        "options": {
+          "allowedOrigins": "*",
+          "rawBody": false
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -3392,
+        0
+      ],
+      "id": "8812445c-dd09-4e11-93e1-be678ffe7eed",
+      "name": "Inbound Webhook",
+      "webhookId": "2198f95f-00a7-4d60-a9cb-160e5a0061ea"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "212047d7-b437-41ef-8f02-d98988693baa",
+              "leftValue": "={{ $json.retell_call_id}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "array",
+                "operation": "lengthGt",
+                "rightType": "number"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -1024,
+        1520
+      ],
+      "id": "0a35a160-a96b-49dc-b289-4f29d859c98e",
+      "name": "If8"
     },
     {
       "parameters": {
@@ -1369,11 +1872,11 @@
             },
             {
               "fieldId": "start_timestamp",
-              "fieldValue": "={{ new Date($json.start_timestamp).toISOString() }}"
+              "fieldValue": "={{ new Date($node[\"Prepare_Save_Call_Log\"].json.start_timestamp).toISOString() }}"
             },
             {
               "fieldId": "end_timestamp",
-              "fieldValue": "={{ new Date($json.end_timestamp).toISOString() }}"
+              "fieldValue": "={{ new Date($node[\"Prepare_Save_Call_Log\"].json.end_timestamp).toISOString() }}"
             },
             {
               "fieldId": "disconnection_reason",
@@ -1422,10 +1925,6 @@
             {
               "fieldId": "flagged_for_review",
               "fieldValue": "={{ $json.flagged_for_review }}"
-            },
-            {
-              "fieldId": "retell_call_id",
-              "fieldValue": "={{ $json.retell_call_id }}"
             }
           ]
         }
@@ -1433,50 +1932,64 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -640,
-        352
+        -736,
+        1312
       ],
-      "id": "bbbbd6c1-b9fa-4678-8520-ff1a688f5406",
-      "name": "Update Call Log",
+      "id": "b430c114-458f-4f33-90ec-e4fcb0f3b824",
+      "name": "Save Call Log",
       "alwaysOutputData": true,
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "5d3d187e-c9e0-440f-84e0-413a8ab170e1",
+              "leftValue": "={{ $json.to_email }}",
+              "rightValue": "",
+              "operator": {
+                "type": "number",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        192,
+        2240
+      ],
+      "id": "f675299e-10cb-4231-82c7-57c017acd45b",
+      "name": "Has Email?"
     },
     {
       "parameters": {
         "operation": "getAll",
-        "tableId": "call_logs",
-        "returnAll": true,
+        "tableId": "outreach_data",
+        "limit": 1,
         "filters": {
           "conditions": [
             {
-              "keyName": "is_voicemail",
+              "keyName": "PhoneNumber",
               "condition": "eq",
-              "keyValue": "true"
-            },
-            {
-              "keyName": "disconnection_reason",
-              "condition": "eq",
-              "keyValue": "dial_no_answer"
-            },
-            {
-              "keyName": "disconnection_reason",
-              "condition": "eq",
-              "keyValue": "dial_busy"
-            },
-            {
-              "keyName": "disconnection_reason",
-              "condition": "eq",
-              "keyValue": "dial_failed"
-            },
-            {
-              "keyName": "attempts",
-              "condition": "lt",
-              "keyValue": "2"
+              "keyValue": "={{ $json.phone_number }}"
             }
           ]
         }
@@ -1484,31 +1997,30 @@
       "type": "n8n-nodes-base.supabase",
       "typeVersion": 1,
       "position": [
-        -96,
-        160
+        912,
+        2336
       ],
-      "id": "9a09c8c1-2877-42e6-ae8b-4c3c5c80f6a0",
-      "name": "Load_All_Prospects",
-      "alwaysOutputData": true,
+      "id": "01f18d24-b07a-4945-9fd9-e9c59b883cdd",
+      "name": "Get Email From Outreach",
       "credentials": {
         "supabaseApi": {
-          "id": "gk2rBjn0VRnz3ziw",
+          "id": "ZK0s8PYrJsYQVn5I",
           "name": "Supabase account"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// Input: Row from Supabase\nconst row = $json;\nconst current = row.attempts ?? 0;\n\nreturn [\n  {\n    json: {\n      attempts: current + 1,\n      retell_call_id: row.retell_call_id,\n      phoneNumber: row.phone_number,\n      prospect_id: row.prospect_id\n    }\n  }\n];\n"
+        "jsCode": "const outreach = items[0]?.json || {};\n\n// clone existing payload\nconst output = { ...$json };\n\n// explicitly set to_email\noutput.to_email = outreach.email ?? null;\n\n// REMOVE the original email field if it exists\ndelete output.email;\n\nreturn [\n  {\n    json: output\n  }\n];\n"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        336,
-        160
+        1152,
+        2336
       ],
-      "id": "57592801-e419-4ab9-ab79-8bc18489a4e3",
-      "name": "Parse_Retell_Webhook"
+      "id": "55fc0a80-ca22-4f93-aba8-bcce4dd13e16",
+      "name": "Get Email From Outreach1"
     },
     {
       "parameters": {
@@ -1517,16 +2029,17 @@
             "caseSensitive": true,
             "leftValue": "",
             "typeValidation": "strict",
-            "version": 2
+            "version": 3
           },
           "conditions": [
             {
-              "id": "71104ee6-4a86-4f06-968d-c3012e7294ec",
-              "leftValue": "={{ $json.attempts }}",
-              "rightValue": 2,
+              "id": "87aea941-9e8b-4f6c-a72c-3d9c725a8021",
+              "leftValue": "={{ $json.to_email }}",
+              "rightValue": "",
               "operator": {
-                "type": "number",
-                "operation": "lt"
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
               }
             }
           ],
@@ -1535,169 +2048,63 @@
         "options": {}
       },
       "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "typeVersion": 2.3,
       "position": [
-        608,
-        160
+        1840,
+        2144
       ],
-      "id": "e8b14e13-6b58-45da-bd1d-92a9eecf289c",
-      "name": "Check_Attempt_Count"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "dc479e8e-a42f-49dd-a5b8-f26913d24bb7",
-              "leftValue": "={{ $node[\"Detect Unsuccessful Call\"].json[\"isUnsuccessful\"] }}",
-              "rightValue": "true",
-              "operator": {
-                "type": "string",
-                "operation": "equals",
-                "name": "filter.operator.equals"
-              }
-            }
-          ],
-          "combinator": "or"
-        },
-        "looseTypeValidation": true,
-        "options": {}
-      },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        -320,
-        528
-      ],
-      "id": "80f422dc-167e-423f-b044-659c653fe6d3",
-      "name": "Validate_Call_Outcome"
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "https://api.retellai.com/v2/create-phone-call",
-        "authentication": "predefinedCredentialType",
-        "nodeCredentialType": "httpBearerAuth",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Authorization",
-              "value": "Bearer key_25414031a5a885a13587eafd6e5e"
-            },
-            {
-              "name": "Content-Type",
-              "value": "application/json"
-            }
-          ]
-        },
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"attempts\": {{ $json.attempts }},\n  \"call_id\": \"{{ $json.retell_call_id }}\",\n  \"from_number\": \"+16292631068\",\n  \"to_number\": \"{{ $node['Merge Call + Prospect'].json.PhoneNumber }}\"\n}",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        1072,
-        0
-      ],
-      "id": "ffa1e2e4-b09f-4406-9cf4-9708a3988d54",
-      "name": "Retry_Retell_Call",
-      "credentials": {
-        "httpBearerAuth": {
-          "id": "QNXUgFUuY2ezu5Ls",
-          "name": "Bearer Auth account"
-        }
-      }
+      "id": "67ceeda7-28be-4dc5-bcde-e3c4bb9d2649",
+      "name": "Final Email Exists?"
     },
     {
       "parameters": {},
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        816,
-        336
+        2032,
+        2272
       ],
-      "id": "4a673f4a-3535-4f80-be9d-674c4ac41dcb",
-      "name": "Stop_Process"
+      "id": "25b8fa30-b8a6-4ee5-a0a4-582efcb47709",
+      "name": "No Operation, do nothing1"
     },
     {
       "parameters": {
-        "jsCode": "const transcriptRaw = $json.transcript || \"\";\nconst transcript = transcriptRaw.toLowerCase().replace(/[,\\.]/g, \"\");\n\n// --- OUTCOME DETECTION ---\n// Define multiple patterns for each outcome\nconst outcomePatterns = {\n  \"Rejected Offer\": [\n    \"not interested\", \"no thanks\", \"don't need\", \"reject\", \"stop calling\", \"go away\", \"already have\",\n    \"no longer\", \"not now\", \"not looking\"\n  ],\n  \"Booked Appointment\": [\n    \"book\", \"schedule\", \"set up\", \"arrange\", \"appointment\", \"reserve\", \"meeting\", \"slot\", \"confirmed\", \"let’s meet\"\n  ],\n  \"Interested\": [\n    \"interested\", \"tell me more\", \"sounds good\", \"send info\", \"send me details\", \"email me\", \n    \"want to know\", \"curious\", \"open to discuss\", \"looking forward\"\n  ],\n  \"Voicemail\": [\n    \"leave a message\", \"voicemail\", \"not available\", \"call back later\", \"missed call\"\n  ]\n};\n\nlet outcome = \"Unknown\";\nfor (const [label, patterns] of Object.entries(outcomePatterns)) {\n  if (patterns.some(p => transcript.includes(p))) {\n    outcome = label;\n    break;\n  }\n}\n\n// --- ORDINALS ---\nconst ordinals = {\n  \"first\":1,\"second\":2,\"third\":3,\"fourth\":4,\"fifth\":5,\"sixth\":6,\"seventh\":7,\"eighth\":8,\"ninth\":9,\"tenth\":10,\n  \"eleventh\":11,\"twelfth\":12,\"thirteenth\":13,\"fourteenth\":14,\"fifteenth\":15,\"sixteenth\":16,\"seventeenth\":17,\"eighteenth\":18,\"nineteenth\":19,\"twentieth\":20,\n  \"twenty first\":21,\"twenty second\":22,\"twenty third\":23,\"twenty fourth\":24,\"twenty fifth\":25,\"twenty sixth\":26,\"twenty seventh\":27,\"twenty eighth\":28,\"twenty ninth\":29,\n  \"thirtieth\":30,\"thirty first\":31\n};\n\n// --- MONTHS ---\nconst months = {\n  january:0, february:1, march:2, april:3, may:4, june:5, july:6, august:7,\n  september:8, october:9, november:10, december:11\n};\n\n// --- NUMBER WORDS ---\nconst numberWords = {\n  \"one\":1,\"two\":2,\"three\":3,\"four\":4,\"five\":5,\"six\":6,\"seven\":7,\"eight\":8,\"nine\":9,\"ten\":10,\n  \"eleven\":11,\"twelve\":12\n};\n\n// --- RELATIVE DAYS ---\nconst weekdays = {\n  sunday:0, monday:1, tuesday:2, wednesday:3, thursday:4, friday:5, saturday:6\n};\n\n// --- TIME PARSER ---\nfunction parseTimePhrase(text) {\n  let hour = 9, minute = 0; // default\n  const timeMatch = text.match(/(\\d{1,2})(:(\\d{2}))?\\s?(am|pm)?/i);\n  if (timeMatch) {\n    hour = parseInt(timeMatch[1]);\n    minute = parseInt(timeMatch[3] || \"0\");\n    const ampm = (timeMatch[4] || \"\").toLowerCase();\n    if (ampm === \"pm\" && hour < 12) hour += 12;\n    if (ampm === \"am\" && hour === 12) hour = 0;\n    return {hour, minute};\n  }\n\n  // word-based\n  const words = text.split(\" \");\n  if (numberWords[words[0]]) hour = numberWords[words[0]];\n  if (words.includes(\"thirty\")) minute = 30;\n  if (words.includes(\"fifteen\")) minute = 15;\n  if (words.includes(\"forty five\")) minute = 45;\n\n  if (words.includes(\"half\") && words.includes(\"past\") && numberWords[words[2]]) {\n    hour = numberWords[words[2]];\n    minute = 30;\n  }\n  if (words.includes(\"quarter\") && words.includes(\"past\") && numberWords[words[2]]) {\n    hour = numberWords[words[2]];\n    minute = 15;\n  }\n  if (words.includes(\"quarter\") && words.includes(\"to\") && numberWords[words[2]]) {\n    hour = numberWords[words[2]] - 1;\n    minute = 45;\n  }\n\n  if (words.includes(\"pm\") && hour < 12) hour += 12;\n  if (words.includes(\"am\") && hour === 12) hour = 0;\n\n  return {hour, minute};\n}\n\n// --- DATE EXTRACTION ---\nlet appointment_time = null;\nlet now = new Date();\nlet year = now.getFullYear();\nlet day, month, hour = 9, minute = 0;\n\n// Case 1: explicit \"August 26th at 11:30 am\"\nlet absDate = transcript.match(/(january|february|march|april|may|june|july|august|september|october|november|december)\\s+(\\d{1,2})(st|nd|rd|th)?\\s*(at\\s+([a-z0-9 :]+(am|pm)?))?/i);\nif (absDate) {\n  month = months[absDate[1].toLowerCase()];\n  day = parseInt(absDate[2]) || 1;\n  if (absDate[5]) {\n    const t = parseTimePhrase(absDate[5]);\n    hour = t.hour; minute = t.minute;\n  }\n}\n\n// Case 2: spelled ordinals \"twenty sixth august at eleven thirty am\"\nlet spelledDate = transcript.match(/(twenty (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|twenty (first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)|thirtieth|thirty first)\\s+(january|february|march|april|may|june|july|august|september|october|november|december)( at ([a-z0-9 :]+(am|pm)?))?/i);\n\nif (spelledDate) {\n  const ordinalRaw = spelledDate[1];\n  const monthRaw = spelledDate[3];\n\n  if (ordinalRaw && ordinals[ordinalRaw.toLowerCase()]) {\n    day = ordinals[ordinalRaw.toLowerCase()];\n  }\n  if (monthRaw && months[monthRaw.toLowerCase()] !== undefined) {\n    month = months[monthRaw.toLowerCase()];\n  }\n\n  if (spelledDate[4]) {\n    const t = parseTimePhrase(spelledDate[4]);\n    hour = t.hour; \n    minute = t.minute;\n  }\n}\n\n\n// Case 3: relative \"tomorrow at 3 pm\"\nif (!day && transcript.includes(\"tomorrow\")) {\n  let tomorrow = new Date();\n  tomorrow.setDate(now.getDate() + 1);\n  day = tomorrow.getDate();\n  month = tomorrow.getMonth();\n  const relTime = transcript.match(/tomorrow at ([a-z0-9 :]+(am|pm)?)/i);\n  if (relTime) {\n    const t = parseTimePhrase(relTime[1]);\n    hour = t.hour; minute = t.minute;\n  }\n}\n\n// Case 4: \"next monday at 10\"\nlet weekdayMatch = transcript.match(/next (monday|tuesday|wednesday|thursday|friday|saturday|sunday)( at ([a-z0-9 :]+(am|pm)?))?/i);\nif (weekdayMatch) {\n  let targetDow = weekdays[weekdayMatch[1].toLowerCase()];\n  let temp = new Date(now);\n  do {\n    temp.setDate(temp.getDate() + 1);\n  } while (temp.getDay() !== targetDow);\n  day = temp.getDate();\n  month = temp.getMonth();\n  if (weekdayMatch[2]) {\n    const t = parseTimePhrase(weekdayMatch[2]);\n    hour = t.hour; minute = t.minute;\n  }\n}\n\n// If we got a valid date\nif (day && month !== undefined) {\n  appointment_time = new Date(year, month, day, hour, minute).toISOString();\n}\n\n// --- FINAL RETURN ---\nreturn {\n  ...$json,\n  appointment_time,\n  call_analysis: {\n    ...$json.call_analysis,\n    custom_analysis_data: {\n      ...$json.call_analysis?.custom_analysis_data,\n      Outcome: outcome\n    }\n  }\n};\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -112,
-        624
-      ],
-      "id": "8ed1db32-2e19-4f10-8cfa-772630a267cb",
-      "name": "Transform_Call_Data"
-    },
-    {
-      "parameters": {
-        "jsCode": "return items.map(item => {\n  let outcome = item.json?.outcome || \"Unknown\";\n\n  // --- Normalize safely ---\n  let normalized = outcome\n    .toString()\n    .trim()\n    .toLowerCase()\n    .replace(/[^a-z\\s]/g, \"\"); // remove symbols/numbers\n\n  // --- Map to canonical categories ---\n  const outcomeMap = {\n    \"rejected offer\": [\"rejected offer\", \"not interested\", \"no thanks\", \"reject\", \"stop calling\", \"declined\", \"unsubscribed\"],\n    \"booked appointment\": [\"booked appointment\", \"appointment\", \"meeting booked\", \"confirmed meeting\", \"scheduled\", \"reserved\", \"call booked\"],\n    \"interested\": [\"interested\", \"curious\", \"tell me more\", \"send info\", \"follow up\", \"maybe\", \"looking forward\"],\n    \"voicemail\": [\"voicemail\", \"voice mail\", \"left message\", \"not available\", \"call back later\"],\n    \"unknown\": [\"unknown\", \"\"]\n  };\n\n  let final = \"unknown\";\n  for (const [canonical, variants] of Object.entries(outcomeMap)) {\n    if (variants.some(v => normalized.includes(v))) {\n      final = canonical;\n      break;\n    }\n  }\n\n  // Store normalized outcome\n  item.json.normalizedOutcome = final;\n\n  return item;\n});\n"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        304,
-        624
-      ],
-      "id": "8aca2797-8e22-4189-bd3b-39f632f50cfb",
-      "name": "Extract_Outcome"
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict",
-            "version": 2
-          },
-          "conditions": [
-            {
-              "id": "6c4ea592-b492-46f1-8c71-986e40eb5239",
-              "leftValue": "={{$json[\"body\"][\"event\"]}}",
-              "rightValue": "call_analyzed",
-              "operator": {
-                "type": "string",
-                "operation": "equals",
-                "name": "filter.operator.equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
+        "mode": "combine",
+        "combineBy": "combineByPosition",
         "options": {}
       },
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
       "position": [
-        -2464,
-        560
+        1440,
+        2144
       ],
-      "id": "6aca34ef-be45-470d-aae5-739651096aa9",
-      "name": "If2"
+      "id": "d2980315-2f7b-4614-82ea-255577e10219",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// After Merge (Combine), $json already contains BOTH\n// Extract_Outcome + Outreach data merged into one object\n\nconst output = { ...$json };\n\n// If Extract_Outcome did not provide email, it is already filled by outreach\n// So just normalize and guarantee fields\n\noutput.to_email = output.to_email ?? null;\noutput.email_sent = output.email_sent ?? false;\noutput.email_subject = output.email_subject ?? null;\noutput.from_email = output.from_email ?? null;\n\n// Safety cleanup\ndelete output.email;\n\nreturn [\n  {\n    json: output\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        2144
+      ],
+      "id": "ebd884e9-3254-4fa6-8d40-24a28c8f1979",
+      "name": "Code in JavaScript"
     },
     {
       "parameters": {},
       "type": "n8n-nodes-base.noOp",
       "typeVersion": 1,
       "position": [
-        -2288,
-        784
+        672,
+        2192
       ],
-      "id": "a0c0e3e0-6ac1-4673-9efa-c325db5cf458",
-      "name": "No Operation, do nothing"
+      "id": "5a534c5e-92c5-48ec-8b4e-83232b12fa52",
+      "name": "No Operation, do nothing7"
     }
   ],
   "pinData": {},
@@ -1707,233 +2114,6 @@
         [
           {
             "node": "Generate Outreach Sequence (Gemini API)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get many rows": {
-      "main": [
-        [
-          {
-            "node": "Merge Call + Prospect",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Switch": {
-      "main": [
-        [
-          {
-            "node": "Send email1",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Update a row1",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Update a row2",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Update a row3",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Send email1": {
-      "main": [
-        [
-          {
-            "node": "Create a row3",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get a row": {
-      "main": [
-        [
-          {
-            "node": "Parse_Retell_Webhook",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code8": {
-      "main": [
-        [
-          {
-            "node": "Retry_Retell_Call",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Code9": {
-      "main": [
-        [
-          {
-            "node": "Update a row5",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create a row3": {
-      "main": [
-        [
-          {
-            "node": "Update a row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Create a row4": {
-      "main": [
-        [
-          {
-            "node": "Extract_Outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update a row": {
-      "main": [
-        [
-          {
-            "node": "ComputeDailyIncrements",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update a row1": {
-      "main": [
-        [
-          {
-            "node": "ComputeDailyIncrements",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update a row2": {
-      "main": [
-        [
-          {
-            "node": "ComputeDailyIncrements",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update a row3": {
-      "main": [
-        [
-          {
-            "node": "ComputeDailyIncrements",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "If": {
-      "main": [
-        [
-          {
-            "node": "Update daily_metrics",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Create daily_metrics",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "daily_metrics": {
-      "main": [
-        [
-          {
-            "node": "If",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "ComputeDailyIncrements": {
-      "main": [
-        [
-          {
-            "node": "daily_metrics",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Get many rows2": {
-      "main": [
-        []
-      ]
-    },
-    "If1": {
-      "main": [
-        [
-          {
-            "node": "Update Call Log",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Save Call Log",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Inbound Webhook": {
-      "main": [
-        [
-          {
-            "node": "Validate Required Fields",
             "type": "main",
             "index": 0
           }
@@ -1963,17 +2143,6 @@
             "node": "Start Timer",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Generate Outreach Sequence (Gemini API)": {
-      "main": [
-        [
-          {
-            "node": "Merge Prospect + AI Response",
-            "type": "main",
-            "index": 1
           }
         ]
       ]
@@ -2064,18 +2233,7 @@
       "main": [
         [
           {
-            "node": "LinkedIn Scraper",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "LinkedIn Scraper": {
-      "main": [
-        [
-          {
-            "node": "Scraper Data Cleaning",
+            "node": "If",
             "type": "main",
             "index": 0
           }
@@ -2097,17 +2255,6 @@
       "main": [
         [
           {
-            "node": "Final format (Retell Payload)",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Final format (Retell Payload)": {
-      "main": [
-        [
-          {
             "node": "Retell Call Script",
             "type": "main",
             "index": 0
@@ -2119,146 +2266,165 @@
       "main": [
         [
           {
-            "node": "Retell Call Request",
+            "node": "HTTP Request",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Retell Call Request": {
-      "main": [
-        []
-      ]
-    },
-    "Call Analysis Webhook": {
+    "If": {
       "main": [
         [
           {
-            "node": "If2",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Detect Unsuccessful Call": {
-      "main": [
-        [
-          {
-            "node": "Get many rows",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Merge Call + Prospect",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse & Normalize Call Data": {
-      "main": [
-        [
-          {
-            "node": "Get many rows2",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "If1",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Merge Call + Prospect": {
-      "main": [
-        [
-          {
-            "node": "Parse & Normalize Call Data",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Save Call Log": {
-      "main": [
-        [
-          {
-            "node": "Validate_Call_Outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Call Log": {
-      "main": [
-        [
-          {
-            "node": "Validate_Call_Outcome",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Load_All_Prospects": {
-      "main": [
-        [
-          {
-            "node": "Get a row",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Parse_Retell_Webhook": {
-      "main": [
-        [
-          {
-            "node": "Check_Attempt_Count",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Check_Attempt_Count": {
-      "main": [
-        [
-          {
-            "node": "Code8",
+            "node": "LinkedinScraper",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Stop_Process",
+            "node": "No Operation, do nothing5",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Validate_Call_Outcome": {
+    "HTTP Request": {
       "main": [
         [
           {
-            "node": "Load_All_Prospects",
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Outreach Sequence (Gemini API)": {
+      "main": [
+        [
+          {
+            "node": "Merge Prospect + AI Response",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "If5",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Transform_Call_Data",
+            "node": "Has Email?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email1": {
+      "main": [
+        [
+          {
+            "node": "Create a row3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row1": {
+      "main": [
+        [
+          {
+            "node": "ComputeDailyIncrements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row2": {
+      "main": [
+        [
+          {
+            "node": "ComputeDailyIncrements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row5": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create a row3": {
+      "main": [
+        [
+          {
+            "node": "Update a row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update a row": {
+      "main": [
+        [
+          {
+            "node": "ComputeDailyIncrements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "daily_metrics": {
+      "main": [
+        [
+          {
+            "node": "If3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ComputeDailyIncrements": {
+      "main": [
+        [
+          {
+            "node": "daily_metrics",
             "type": "main",
             "index": 0
           }
@@ -2269,7 +2435,7 @@
       "main": [
         [
           {
-            "node": "Code9",
+            "node": "Update a row5",
             "type": "main",
             "index": 0
           }
@@ -2280,7 +2446,7 @@
       "main": [
         [
           {
-            "node": "Create a row4",
+            "node": "Extract_Outcome",
             "type": "main",
             "index": 0
           }
@@ -2298,11 +2464,163 @@
         ]
       ]
     },
+    "If3": {
+      "main": [
+        [
+          {
+            "node": "Update daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create daily_metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Wait for voicemail",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for busy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for no answer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait for failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for voicemail": {
+      "main": [
+        [
+          {
+            "node": "Retry_Retell_Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for busy": {
+      "main": [
+        [
+          {
+            "node": "Retry_Retell_Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for no answer": {
+      "main": [
+        [
+          {
+            "node": "Retry_Retell_Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for failed": {
+      "main": [
+        [
+          {
+            "node": "Retry_Retell_Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RPC_Increment_Attempt": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "If5": {
+      "main": [
+        [
+          {
+            "node": "Send email1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If6": {
+      "main": [
+        [
+          {
+            "node": "RPC_Increment_Attempt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get call_id": {
+      "main": [
+        [
+          {
+            "node": "If6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "If2": {
       "main": [
         [
           {
-            "node": "Detect Unsuccessful Call",
+            "node": "Parse & Normalize Call Data",
             "type": "main",
             "index": 0
           }
@@ -2315,17 +2633,305 @@
           }
         ]
       ]
+    },
+    "Validate_Call_Outcome": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF – Outcome Is Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Normalize Call Data": {
+      "main": [
+        [
+          {
+            "node": "Validate_Call_Outcome",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Prepare_Save_Call_Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Webhook Payload": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare_Save_Call_Log": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Save Call Log1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedinScraper": {
+      "main": [
+        [
+          {
+            "node": "Scraper Data Cleaning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send email": {
+      "main": [
+        [
+          {
+            "node": "Update a row1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Transform_Call_Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF – Outcome Is Final": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Call Log1": {
+      "main": [
+        [
+          {
+            "node": "Get call_id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get call_id1": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Update a row5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Get call_id1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbound Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If8": {
+      "main": [
+        [
+          {
+            "node": "Save Call Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Save Call Log": {
+      "main": [
+        []
+      ]
+    },
+    "Has Email?": {
+      "main": [
+        [
+          {
+            "node": "No Operation, do nothing7",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get Email From Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email From Outreach": {
+      "main": [
+        [
+          {
+            "node": "Get Email From Outreach1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Email Exists?": {
+      "main": [
+        [
+          {
+            "node": "Send email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Email From Outreach1": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Final Email Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "d9110d46-688d-4ae7-8df3-a2a1de90f188",
+  "versionId": "0e81c138-1092-45a9-a91b-3fc3be455664",
   "meta": {
     "templateCredsSetupCompleted": true,
-    "instanceId": "aeb1742f74735168dfe2b61dbe459cc2ad2211ff548ad4d16aba29080037e9cc"
+    "instanceId": "a2f2b2df4513f759f5b9daeee7fdb53e609fed94ee8548ddd463e6c6cc2329d8"
   },
-  "id": "0AYed24Syzeqt1vn",
+  "id": "XnYghSJsVn4r5fc6",
   "tags": []
 }
