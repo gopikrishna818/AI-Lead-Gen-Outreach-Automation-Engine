@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Lead Gen Outreach Automation Engine</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Supabase JS Client -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <h2>AI Lead Gen<span>.Engine</span></h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active"><i data-lucide="layout-dashboard"></i> Dashboard</li>
+                <li><i data-lucide="users"></i> Audience</li>
+                <li><i data-lucide="phone-call"></i> Voice Agents</li>
+                <li><i data-lucide="bar-chart-3"></i> Analytics</li>
+                <li><i data-lucide="settings"></i> Workflow Settings</li>
+            </ul>
+            <div class="user-profile">
+                <img src="https://ui-avatars.com/api/?name=Admin&background=0D8ABC&color=fff" alt="User">
+                <div class="user-info">
+                    <span class="name">Admin User</span>
+                    <span class="role">System Orchestrator</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="topbar">
+                <div>
+                    <h1>AI Lead Gen Outreach Automation Engine</h1>
+                    <p>Live Overview of Autonomous Outreach Pipeline</p>
+                </div>
+                <div class="topbar-actions">
+                    <div class="status-indicator live">
+                        <span class="dot"></span> System Operational
+                    </div>
+                    <button class="btn-icon"><i data-lucide="bell"></i></button>
+                </div>
+            </header>
+
+            <div class="bento-grid">
+                
+                <!-- Trigger Form Card -->
+                <div class="bento-card trigger-card glass-panel">
+                    <div class="card-header">
+                        <h3><i data-lucide="zap"></i> Trigger Pipeline</h3>
+                        <p>Inject a new lead into the n8n engine</p>
+                    </div>
+                    <form id="leadForm" class="trigger-form">
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label>First Name</label>
+                                <input type="text" id="firstName" value="Elon" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Last Name</label>
+                                <input type="text" id="lastName" value="Musk" required>
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label>Company</label>
+                                <input type="text" id="companyName" value="Tesla" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Website</label>
+                                <input type="url" id="website" value="https://tesla.com" required>
+                            </div>
+                        </div>
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label>Email</label>
+                                <input type="email" id="email" value="elon@tesla.com" required>
+                            </div>
+                            <div class="input-group">
+                                <label>Phone (For Voice AI)</label>
+                                <input type="tel" id="phoneNumber" value="+1234567890" required>
+                            </div>
+                        </div>
+                        <div class="input-group full-width">
+                            <label>LinkedIn URL</label>
+                            <input type="url" id="linkedInURL" value="https://linkedin.com/in/elonmusk" required>
+                        </div>
+                        <div class="input-group full-width">
+                            <label>n8n Webhook URL</label>
+                            <input type="url" id="webhookUrl" placeholder="https://your-n8n-instance/webhook/lead" value="">
+                            <small>Leave blank to simulate the workflow visually</small>
+                        </div>
+                        <button type="submit" class="btn-primary glow-effect">
+                            <span>Initialize Outreach</span>
+                            <i data-lucide="arrow-right"></i>
+                        </button>
+                    </form>
+                </div>
+
+                <!-- Workflow Visualizer Card -->
+                <div class="bento-card workflow-card glass-panel">
+                    <div class="card-header">
+                        <h3><i data-lucide="activity"></i> Neural Execution State</h3>
+                    </div>
+                    <div class="workflow-steps" id="workflowSteps">
+                        <div class="step" id="step-1">
+                            <div class="step-icon"><i data-lucide="database"></i></div>
+                            <div class="step-details">
+                                <h4>1. Ingestion & Validation</h4>
+                                <span>Awaiting Payload...</span>
+                            </div>
+                            <div class="step-status"></div>
+                        </div>
+                        <div class="workflow-connector"></div>
+                        <div class="step" id="step-2">
+                            <div class="step-icon"><i data-lucide="brain"></i></div>
+                            <div class="step-details">
+                                <h4>2. Gemini Context Enrichment</h4>
+                                <span>Pending...</span>
+                            </div>
+                            <div class="step-status"></div>
+                        </div>
+                        <div class="workflow-connector"></div>
+                        <div class="step" id="step-3">
+                            <div class="step-icon"><i data-lucide="mic"></i></div>
+                            <div class="step-details">
+                                <h4>3. Retell AI Voice Synthesis</h4>
+                                <span>Pending...</span>
+                            </div>
+                            <div class="step-status"></div>
+                        </div>
+                        <div class="workflow-connector"></div>
+                        <div class="step" id="step-4">
+                            <div class="step-icon"><i data-lucide="check-circle"></i></div>
+                            <div class="step-details">
+                                <h4>4. Analysis & CRM Sync</h4>
+                                <span>Pending...</span>
+                            </div>
+                            <div class="step-status"></div>
+                        </div>
+                    </div>
+                    <div class="terminal-output" id="terminalOutput">
+                        <div class="terminal-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                            <span class="title">sys_logs</span>
+                        </div>
+                        <div class="terminal-body" id="logContainer">
+                            <div><span class="time">[SYSLOG]</span> System ready. Awaiting webhook trigger...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metrics Panel -->
+                <div class="bento-card metrics-card glass-panel col-span-2">
+                    <div class="metrics-grid">
+                        <div class="metric-item">
+                            <div class="metric-icon blue"><i data-lucide="users"></i></div>
+                            <div class="metric-content">
+                                <span class="label">Total Leads Processed</span>
+                                <span class="value" id="valLeads">1,204</span>
+                                <span class="trend positive"><i data-lucide="trending-up"></i> +12% this week</span>
+                            </div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-icon purple"><i data-lucide="phone-outgoing"></i></div>
+                            <div class="metric-content">
+                                <span class="label">AI Voice Calls Initiated</span>
+                                <span class="value" id="valCalls">847</span>
+                                <span class="trend positive"><i data-lucide="trending-up"></i> +5% this week</span>
+                            </div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-icon green"><i data-lucide="calendar-check"></i></div>
+                            <div class="metric-content">
+                                <span class="label">Meetings Booked</span>
+                                <span class="value" id="valMeetings">62</span>
+                                <span class="trend positive"><i data-lucide="trending-up"></i> 7.3% Conversion</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts Card -->
+                <div class="bento-card chart-card glass-panel">
+                    <div class="card-header">
+                        <h3><i data-lucide="pie-chart"></i> Intent Analysis</h3>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="intentChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Live Feed Card -->
+                <div class="bento-card feed-card glass-panel">
+                    <div class="card-header">
+                        <h3><i data-lucide="radio"></i> Live Outreach Feed</h3>
+                    </div>
+                    <div class="activity-feed" id="activityFeed">
+                        <!-- Simulated items -->
+                        <div class="feed-item success">
+                            <div class="feed-icon"><i data-lucide="calendar"></i></div>
+                            <div class="feed-info">
+                                <p><strong>Meeting Booked</strong> with Sarah J. (Acme Corp)</p>
+                                <span>2 mins ago via Retell AI Agent</span>
+                            </div>
+                        </div>
+                        <div class="feed-item pending">
+                            <div class="feed-icon"><i data-lucide="voicemail"></i></div>
+                            <div class="feed-info">
+                                <p><strong>Voicemail Left</strong> for Mark T. (TechFlow)</p>
+                                <span>15 mins ago • Scheduled retry</span>
+                            </div>
+                        </div>
+                        <div class="feed-item processing">
+                            <div class="feed-icon"><i data-lucide="brain"></i></div>
+                            <div class="feed-info">
+                                <p><strong>Enriching Profile</strong> for David R.</p>
+                                <span>45 mins ago • Gemini processing</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+    <script>
+        lucide.createIcons();
+    </script>
+</body>
+</html>
